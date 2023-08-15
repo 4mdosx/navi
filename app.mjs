@@ -1,12 +1,12 @@
-'use strict'
-
-const path = require('path')
-const AutoLoad = require('@fastify/autoload')
-
+import path from 'path'
+import AutoLoad from '@fastify/autoload'
+import config from './config.mjs'
+import * as url from 'url';
+const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 // Pass --options via CLI arguments in command to enable these options.
-module.exports.options = {}
+export const options = {}
 
-module.exports = async function (fastify, opts) {
+export default async function (fastify, opts) {
   // Place here your custom code!
 
   // Do not touch the following lines
@@ -16,13 +16,13 @@ module.exports = async function (fastify, opts) {
   // through your application
   fastify.register(AutoLoad, {
     dir: path.join(__dirname, 'plugins'),
-    options: Object.assign({}, opts)
+    options: Object.assign({}, { ...opts, ...config }),
   })
 
   // This loads all plugins defined in routes
   // define your routes in one of these
   fastify.register(AutoLoad, {
     dir: path.join(__dirname, 'routes'),
-    options: Object.assign({}, opts)
+    options: Object.assign({}, { ...opts, ...config }),
   })
 }
