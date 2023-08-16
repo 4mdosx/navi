@@ -2,7 +2,7 @@ export default async function (fastify, opts) {
   fastify.post('/user', async function (request, reply) {
     const { username, password } = request.body
     const res = await fastify.user.createUser(username, password)
-    return res
+    return res.rows[0]
   })
 
 
@@ -32,11 +32,18 @@ export default async function (fastify, opts) {
     }
   })
 
-  fastify.get('/user/:id', async function (request, reply) {
-    const res = await fastify.pg.query(
-      'SELECT id, username, hash, salt FROM users WHERE id=$1',
-      [request.params.id]
-    )
-    return res
+  fastify.route({
+    method: 'GET',
+    url: '/user/:id',
+    preHandler: fastify.auth([
+      fastify.verifyJWT
+    ]),
+    handler: async (req, reply) => {
+      const { rows } = await fastify.pg.query(
+        'SELECT id, username FROM users WHERE id=$1',
+        [request.params.id]
+      )
+      return rows[0]
+    }
   })
 }

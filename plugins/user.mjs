@@ -24,7 +24,7 @@ export default fp(async function (fastify, opts) {
       const salt = await bcrypt.genSalt(saltRounds)
       const hash = await bcrypt.hash(password, salt)
       const res = await fastify.pg.query(
-        'INSERT INTO users (username, hash) VALUES ($1, $2) RETURNING id',
+        'INSERT INTO users (username, hash) VALUES ($1, $2) RETURNING id, username',
         [username, hash]
       )
       return res
