@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "tap \"test/**/*.test.js\"",
-    "start": "fastify start -l info app.mjs",
+    "start": "fastify start -p 8011 -l info app.mjs",
+    "deploy": "pm2 start npm --name 'navi' -- start",
     "dev": "fastify start -w -l info -P app.mjs"
   },
   "dependencies": {
