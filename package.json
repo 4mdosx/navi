@@ -9,13 +9,14 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@next/codemod": "^14.2.16",
+    "date-fns": "^4.1.0",
     "lowdb": "^6.1.1",
-    "next": "13.5.6",
-    "react": "^18",
-    "react-dom": "^18"
+    "next": "^15.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/react": "18.3.12",
     "autoprefixer": "^10",
     "eslint": "^8",
     "eslint-config-next": "13.5.6",
