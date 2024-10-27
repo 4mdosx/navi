@@ -38,3 +38,7 @@ yarn.lock
 
 # data
 db-data.json
+local.db
+
+# config
+.env
