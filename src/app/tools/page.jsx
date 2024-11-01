@@ -2,11 +2,11 @@ import fs from 'fs/promises'
 import Link from 'next/link'
 
 async function readAppFolder() {
-  const folder = await fs.readdir('./src/app/micro-app')
+  const folder = await fs.readdir('./src/app/tools')
   const apps = new Set()
   for (const path of folder) {
     if (path.includes('.')) continue
-    const files = await fs.readdir(`./src/app/micro-app/${path}`)
+    const files = await fs.readdir(`./src/app/tools/${path}`)
     console.log(files)
     files.forEach(file => {
       if (file.includes('page.')) {
@@ -24,7 +24,7 @@ export default async function MicroApp() {
       {
         [...apps].map(app => (
           <li key={app}>
-            <Link href={`/micro-app/${app}`}>{app}</Link>
+            <Link href={`/tools/${app}`}>{app}</Link>
           </li>
         ))
       }
