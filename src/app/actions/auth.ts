@@ -5,6 +5,7 @@ import { deleteSession, createSession } from '@/lib/session'
 import { redirect } from 'next/navigation'
 import { createUser, createUserDto } from './user'
 import { getUserByEmail } from '@/lib/dal'
+import * as bcrypt from 'bcrypt'
 
 export async function signup(state: FormState, formData: FormData) {
   // Validate form fields
@@ -27,10 +28,6 @@ export async function signup(state: FormState, formData: FormData) {
   redirect('/dashboard')
 }
 
-function compare(password: string, userPassword: string) {
-  return password === userPassword
-}
-
 export async function login(state: FormState, formData: FormData) {
   const validatedFields = LoginFormSchema.safeParse({
     email: formData.get('email'),
@@ -49,7 +46,7 @@ export async function login(state: FormState, formData: FormData) {
       errors: { email: ['User not found'] },
     }
   }
-  const passwordsMatch = await compare(validatedFields.data.password, user.password)
+  const passwordsMatch = await bcrypt.compare(validatedFields.data.password, user.password)
   if (!passwordsMatch) {
     return {
       errors: { password: ['Password is incorrect'] },

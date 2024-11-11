@@ -8,3 +8,10 @@ export const usersTable = sqliteTable('users_table', {
   password: text().notNull(),
   active: integer().default(0),
 })
+
+export const kvTable = sqliteTable('kv_table', {
+  id: int().primaryKey({ autoIncrement: true }),
+  key: text().notNull(),
+  value: text().notNull(),
+  userId: int().references(() => usersTable.id),
+})
