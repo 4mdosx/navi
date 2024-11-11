@@ -39,6 +39,7 @@ yarn.lock
 # data
 db-data.json
 local.db
+/public/uploads
 
 # config
 .env

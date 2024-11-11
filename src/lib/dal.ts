@@ -9,7 +9,7 @@ import db from '@/db'
 import { usersTable } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 
-export const verifySession = cache(async () => {
+export const verifySession = async () => {
   const cookie = (await cookies()).get('session')?.value
   const session = await decrypt(cookie)
 
@@ -18,7 +18,18 @@ export const verifySession = cache(async () => {
   }
 
   return { isAuth: true, userId: session.userId }
-})
+}
+
+export const verifySessionInAPI = async () => {
+  const cookie = (await cookies()).get('session')?.value
+  const session = await decrypt(cookie)
+
+  if (!session?.userId) {
+    return { isAuth: false }
+  }
+
+  return { isAuth: true, userId: session.userId }
+}
 
 export const getUser = cache(async () => {
   const { userId } = await verifySession()
