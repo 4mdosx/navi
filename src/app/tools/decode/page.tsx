@@ -90,7 +90,7 @@ export default function Decode() {
           ))}
         </div>
         <div>
-          {inputType} -> {targetType}
+          {inputType} -{'>'}` {targetType}
         </div>
       </main>
     </div>

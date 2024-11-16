@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "fortress:push": "rsync -avz ./local.db fortress:/root/www/navi/local.db",
+    "fortress:pull": "rsync -avz fortress:/root/www/navi/local.db ./local.remote.db"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
