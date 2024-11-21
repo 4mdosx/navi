@@ -4,9 +4,9 @@ import { FormState } from '@/modules/(common)/definitions'
 import { SignupFormSchema, LoginFormSchema } from '@/modules/auth/definitions'
 import { deleteSession, createSession } from '@/modules/auth/service'
 import { redirect } from 'next/navigation'
-import { createUser, createUserDto } from './user'
-import { getUserByEmail } from '@/modules/user/service'
+import { createUser, getUserByEmail } from '@/modules/user/service'
 import * as bcrypt from 'bcrypt'
+import { createUserDto } from '@/modules/user/definitions'
 
 export async function signup(state: FormState, formData: FormData) {
   // Validate form fields
