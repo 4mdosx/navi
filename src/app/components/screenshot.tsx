@@ -1,4 +1,4 @@
-import NaviIcon from './navi-icon'
+import NaviIcon from '@/app/components/navi-icon'
 import './screenshot.css'
 import html2canvas from 'html2canvas'
 

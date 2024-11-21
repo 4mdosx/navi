@@ -1,7 +1,7 @@
 'use server'
 import 'server-only'
-import db from '@/db'
-import { usersTable, User } from '@/db/schema'
+import db from '@/modules/database/service'
+import { usersTable, User } from '@/modules/database/schema'
 import { eq } from 'drizzle-orm'
 import * as bcrypt from 'bcrypt'
 

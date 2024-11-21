@@ -7,7 +7,6 @@ async function readAppFolder() {
   for (const path of folder) {
     if (path.includes('.')) continue
     const files = await fs.readdir(`./src/app/tools/${path}`)
-    console.log(files)
     files.forEach(file => {
       if (file.includes('page.')) {
         apps.add(path)

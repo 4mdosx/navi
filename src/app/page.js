@@ -1,6 +1,6 @@
 import Image from 'next/image'
 import Link from 'next/link'
-import NaviIcon from '@/components/navi-icon'
+import NaviIcon from '@/app/components/navi-icon'
 import '../style/home.css'
 
 function Header() {

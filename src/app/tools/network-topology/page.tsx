@@ -2,7 +2,7 @@
 
 import './page.css'
 import Computer from './computer'
-import Screenshot from '@/components/screenshot'
+import Screenshot from '@/app/components/screenshot'
 import { useEffect } from 'react'
 
 function DrawLink() {

@@ -1,4 +1,4 @@
-import NaviIcon from '@/components/navi-icon'
+import NaviIcon from '@/app/components/navi-icon'
 
 export default function Computer({ name }: { name: string }): React.ReactElement {
   return <div className='computer icon' id={'computer-' + name}>

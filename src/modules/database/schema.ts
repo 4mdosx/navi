@@ -9,6 +9,7 @@ export const usersTable = sqliteTable('users_table', {
   active: integer().default(0),
 })
 
+export type KV = typeof kvTable.$inferSelect
 export const kvTable = sqliteTable('kv_table', {
   id: int().primaryKey({ autoIncrement: true }),
   key: text().notNull(),
