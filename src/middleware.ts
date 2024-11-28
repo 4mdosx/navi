@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { decrypt } from '@/modules/auth/service'
+import { decrypt } from '@/modules/(common)/session' // notice: middleware is a edge function, need split native server actions
 import { cookies } from 'next/headers'
 
 // 1. Specify protected and public routes
@@ -16,7 +16,6 @@ export default async function middleware(req: NextRequest) {
     }
   })
   const isAuthRoute = authRoutes.includes(path)
-
   // 3. Decrypt the session from the cookie
   const cookie = (await cookies()).get('session')?.value
   const session = await decrypt(cookie)

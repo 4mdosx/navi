@@ -1,14 +1,13 @@
 'use server'
 import 'server-only'
-
 import { cache } from 'react'
 import db from '@/modules/database/service'
 import { usersTable } from '@/modules/database/schema'
 import { eq } from 'drizzle-orm'
 import * as bcrypt from 'bcrypt'
 import { createUserDto } from './definitions'
-export const getUser = cache(async (userId: number) => {
 
+export const getUser = cache(async (userId: number) => {
   const user = await db.select().from(usersTable).where(eq(usersTable.id, userId))
   return user[0]
 })

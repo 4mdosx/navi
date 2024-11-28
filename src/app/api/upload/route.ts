@@ -1,11 +1,11 @@
 'use server'
 import { NextResponse } from 'next/server'
-import { verifySessionInAPI } from '@/lib/dal'
+import { verifySession } from '@/modules/auth/service'
 import fs from 'fs/promises'
 import path from 'path'
 
 export async function POST(request: Request) {
-  const { userId, isAuth } = await verifySessionInAPI()
+  const { userId, isAuth } = await verifySession()
   if (!isAuth) {
     return NextResponse.json({
       message: 'Unauthorized',
