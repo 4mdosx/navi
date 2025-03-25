@@ -1,38 +1,19 @@
 'use server'
 import 'server-only'
-import { FormState } from '@/modules/(common)/definitions'
-import { SignupFormSchema, LoginFormSchema } from '@/modules/auth/definitions'
+
 import { deleteSession, createSession } from '@/modules/auth/service'
 import { redirect } from 'next/navigation'
-import { createUser, getUserByEmail } from '@/modules/user/service'
-import * as bcrypt from 'bcrypt'
-import { createUserDto } from '@/modules/user/definitions'
+import { z } from 'zod'
+import { verifyOTP } from '@/modules/2fa/service'
 
-export async function signup(state: FormState, formData: FormData) {
-  // Validate form fields
-  const validatedFields = SignupFormSchema.safeParse({
-    name: formData.get('name'),
-    email: formData.get('email'),
-    password: formData.get('password'),
-  })
+const LoginSchema = z.object({
+  code: z.string().length(6),
+})
 
-  // If any form fields are invalid, return early
-  if (!validatedFields.success) {
-    return {
-      errors: validatedFields.error.flatten().fieldErrors,
-    }
-  }
-
-  const user = await createUser(validatedFields.data as createUserDto)
-  // Create a session
-  await createSession(user.id)
-  redirect('/dashboard')
-}
-
-export async function login(state: FormState, formData: FormData) {
-  const validatedFields = LoginFormSchema.safeParse({
-    email: formData.get('email'),
-    password: formData.get('password'),
+export async function login(loginData: z.infer<typeof LoginSchema>) {
+  console.log(loginData)
+  const validatedFields = LoginSchema.safeParse({
+    code: loginData.code,
   })
 
   if (!validatedFields.success) {
@@ -41,23 +22,19 @@ export async function login(state: FormState, formData: FormData) {
     }
   }
 
-  const user = await getUserByEmail(validatedFields.data.email)
-  if (!user) {
+  const result = await verifyOTP(process.env.TOTP_SECRET!, validatedFields.data.code)
+  if (!result) {
     return {
-      errors: { email: ['User not found'] },
+      errors: {
+        code: ['Invalid code'],
+      },
     }
   }
-  const passwordsMatch = await bcrypt.compare(validatedFields.data.password, user.password)
-  if (!passwordsMatch) {
-    return {
-      errors: { password: ['Password is incorrect'] },
-    }
-  }
-  await createSession(user.id)
-  redirect('/dashboard')
+  await createSession()
+  redirect('/')
 }
 
 export async function logout() {
   deleteSession()
-  redirect('/signup')
+  redirect('/')
 }
