@@ -25,7 +25,7 @@ function checkInputType(input: string) {
   return 'string'
 }
 
-function guessTransformType(newInputType: string, lastInputType: string, lastTargetType: string) {
+function guessTransformType(newInputType: string) {
   if (newInputType === 'unicode') {
     return 'string'
   }
@@ -76,7 +76,7 @@ export default function Decode() {
     setInput(value)
     const newInputType = checkInputType(value)
     setInputType(newInputType)
-    setTargetType(guessTransformType(newInputType, inputType, targetType))
+    setTargetType(guessTransformType(newInputType))
   }
   return (
     <div>

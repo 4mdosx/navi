@@ -112,7 +112,11 @@ export default function VerificationCodeInput({
         {code.map((digit, index) => (
           <Input
             key={index}
-            ref={(ref) => (inputRefs.current[index] = ref)}
+            ref={(ref) => {
+              if (ref) {
+                inputRefs.current[index] = ref
+              }
+            }}
             type="text"
             inputMode="numeric"
             maxLength={1}

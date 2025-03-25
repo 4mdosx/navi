@@ -1,7 +1,10 @@
-import { Inter } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
+const inter = localFont({
+  src: '../../public/fonts/Inter-Variable.ttf',
+  display: 'swap',
+})
 
 export const metadata = {
   title: 'Navi',

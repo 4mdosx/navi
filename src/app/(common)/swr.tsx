@@ -1,4 +1,4 @@
-import useSWR, { SWRConfig } from 'swr'
+import { SWRConfig } from 'swr'
 
 export function SWRConfigWrapper(props: { children: React.ReactNode }) {
   return (
