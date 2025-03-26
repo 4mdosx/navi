@@ -70,7 +70,21 @@ const code = {
 
 function toRomanNumber(number: number) {
   // Number to Roman Numerals Conversion
-  const roman = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I']
+  const roman = [
+    'M',
+    'CM',
+    'D',
+    'CD',
+    'C',
+    'XC',
+    'L',
+    'XL',
+    'X',
+    'IX',
+    'V',
+    'IV',
+    'I',
+  ]
   const values = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
   let result = ''
   for (let i = 0; i < roman.length; i++) {
@@ -92,9 +106,10 @@ export default function GermanLettersPage() {
     const utterance = new SpeechSynthesisUtterance(
       code[letter as keyof typeof code]
     )
-    utterance.voice = window.speechSynthesis.getVoices().find(
-      (voice) => voice.lang.startsWith('de')
-    ) ?? null
+    utterance.voice =
+      window.speechSynthesis
+        .getVoices()
+        .find((voice) => voice.lang.startsWith('de')) ?? null
     utterance.lang = 'de'
     window.speechSynthesis.speak(utterance)
   }
@@ -111,12 +126,8 @@ export default function GermanLettersPage() {
                 key={letter}
                 className="overflow-hidden border border-border/50 shadow-sm cursor-pointer"
               >
-                <CardContent
-                  className="p-6 flex flex-col items-center justify-center relative"
-                >
-                  <div
-                    className="text-4xl font-light mb-2 mt-2"
-                  >
+                <CardContent className="p-6 flex flex-col items-center justify-center relative">
+                  <div className="text-4xl font-light mb-2 mt-2">
                     {letter === 'ß' ? 'ẞ' : letter.toUpperCase()}
                     {letter}
                   </div>
@@ -151,9 +162,10 @@ export default function GermanLettersPage() {
             basic Latin alphabet plus four special characters: ä, ö, ü, and ß.
           </p>
           <p>
-            The three umlauted vowels (ä, ö, ü) can be written as "ae", "oe",
-            and "ue" respectively when the umlauts are not available. The letter
-            ß (called Eszett or scharfes S) can be written as "ss".
+            The three umlauted vowels (ä, ö, ü) can be written as &quot;ae&quot;,
+            &quot;oe&quot;, and &quot;ue&quot; respectively when the umlauts are
+            not available. The letter ß (called Eszett or scharfes S) can be
+            written as &quot;ss&quot;.
           </p>
           <p>
             In the German phonetic alphabet, these special characters have
