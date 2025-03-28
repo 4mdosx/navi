@@ -1,8 +1,6 @@
 {
   "title": "German Alphabet",
-  "description": "Learn the German alphabet with this interactive tool. Practice pronouncing each letter and discover its IPA representation. Perfect for language learners and students.",
+  "description": "the German alphabet with interactive IPA pronunciation tool",
   "category": "de 🇩🇪",
-  "keywords": ["German", "alphabet", "pronunciation", "IPA", "language learning"],
-  "image": "https://example.com/german-alphabet.jpg",
-  "url": "https://example.com/german-alphabet"
+  "keywords": ["German", "alphabet", "pronunciation", "IPA", "language learning"]
 }
