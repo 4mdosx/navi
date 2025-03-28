@@ -1,5 +1,6 @@
 'use client'
 import { Card, CardContent } from '@/components/ui/card'
+import { useEffect, useRef, useState } from 'react'
 
 const IPAS = {
   a: '/ʔaː/',
@@ -96,35 +97,74 @@ function toRomanNumber(number: number) {
   return result
 }
 
+
+async function speak(letter: string) {
+  if (!window.speechSynthesis) return
+  return new Promise((resolve) => {
+    const utterance = new SpeechSynthesisUtterance(code[letter as keyof typeof code])
+    utterance.voice = window.speechSynthesis.getVoices().find((voice) => voice.lang.startsWith('de')) ?? null
+    utterance.lang = 'de'
+    utterance.onend = () => {
+      setTimeout(() => {
+        resolve(null)
+      }, 200)
+    }
+    window.speechSynthesis.speak(utterance)
+  })
+}
+
 export default function GermanLettersPage() {
   const standardLetters = 'abcdefghijklmnopqrstuvwxyz'.split('')
   const specialLetters = ['ä', 'ö', 'ü', 'ß']
   const allLetters = [...standardLetters, ...specialLetters]
+  const queue = useRef<string[]>([])
+  const [current, setCurrent] = useState<string | null>(null)
 
-  const speak = (letter: string) => {
-    if (!window.speechSynthesis) return
-    const utterance = new SpeechSynthesisUtterance(
-      code[letter as keyof typeof code]
-    )
-    utterance.voice =
-      window.speechSynthesis
-        .getVoices()
-        .find((voice) => voice.lang.startsWith('de')) ?? null
-    utterance.lang = 'de'
-    window.speechSynthesis.speak(utterance)
+  useEffect(() => {
+    if (current) {
+      speak(current).then(() => {
+        if (queue.current.length > 0) {
+          setCurrent(queue.current[0])
+          queue.current = queue.current.slice(1)
+        } else {
+          setCurrent(null)
+        }
+      })
+    }
+  })
+
+  function play(letters: string[]) {
+    queue.current = letters
+    setCurrent(null) // reset current
+    setCurrent(queue.current[0])
+    queue.current = queue.current.slice(1)
   }
 
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-semibold mb-2">German Letters</h1>
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-3xl font-semibold">
+            German Letters
+          </h1>
+          <button
+            onClick={() => play(allLetters)}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Play All
+          </button>
+        </div>
         <div className="mb-10">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {allLetters.map((letter, index) => (
               <Card
-                onClick={() => speak(letter)}
+                onClick={() => play([letter])}
                 key={letter}
-                className="overflow-hidden border border-border/50 shadow-sm cursor-pointer"
+                className={`overflow-hidden border border-border/50 shadow-sm cursor-pointer transition-colors ${
+                  current === letter
+                    ? 'bg-green-100 dark:bg-green-900/30'
+                    : ''
+                }`}
               >
                 <CardContent className="p-6 flex flex-col items-center justify-center relative">
                   <div className="text-4xl font-light mb-2 mt-2">
@@ -162,10 +202,10 @@ export default function GermanLettersPage() {
             basic Latin alphabet plus four special characters: ä, ö, ü, and ß.
           </p>
           <p>
-            The three umlauted vowels (ä, ö, ü) can be written as &quot;ae&quot;,
-            &quot;oe&quot;, and &quot;ue&quot; respectively when the umlauts are
-            not available. The letter ß (called Eszett or scharfes S) can be
-            written as &quot;ss&quot;.
+            The three umlauted vowels (ä, ö, ü) can be written as
+            &quot;ae&quot;, &quot;oe&quot;, and &quot;ue&quot; respectively when
+            the umlauts are not available. The letter ß (called Eszett or
+            scharfes S) can be written as &quot;ss&quot;.
           </p>
           <p>
             In the German phonetic alphabet, these special characters have
