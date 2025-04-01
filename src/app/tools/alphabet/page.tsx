@@ -1,6 +1,7 @@
 'use client'
 import { Card, CardContent } from '@/components/ui/card'
 import { useEffect, useRef, useState } from 'react'
+import { Howl } from 'howler'
 
 const IPAS = {
   a: '/ʔaː/',
@@ -98,10 +99,10 @@ function toRomanNumber(number: number) {
 }
 
 
-async function speak(letter: string) {
+async function speak(content: string) {
   if (!window.speechSynthesis) return
   return new Promise((resolve) => {
-    const utterance = new SpeechSynthesisUtterance(code[letter as keyof typeof code])
+    const utterance = new SpeechSynthesisUtterance(content)
     utterance.voice = window.speechSynthesis.getVoices().find((voice) => voice.lang.startsWith('de')) ?? null
     utterance.lang = 'de'
     utterance.onend = () => {
@@ -113,16 +114,65 @@ async function speak(letter: string) {
   })
 }
 
+class Sound {
+  private sound: Howl | null = null
+
+  constructor() {
+    this.sound = new Howl({
+      src: ['/sounds/German_alphabet.ogg'],
+      sprite: {
+        a: [0, 1000], // start, duration
+        b: [1000, 1000],
+        c: [2000, 1000],
+        d: [3000, 1000],
+        e: [4000, 1000],
+        f: [5000, 1000],
+        g: [6000, 1000],
+        h: [7000, 1000],
+        i: [8000, 1000],
+        j: [9000, 1000],
+        k: [10000, 1000],
+        l: [11000, 1000],
+        m: [12000, 1000],
+        n: [13000, 1000],
+        o: [14000, 1000],
+        p: [15000, 1000],
+        q: [16000, 1000],
+        r: [17000, 1000],
+        s: [18000, 1000],
+        t: [19000, 1000],
+        u: [20000, 1000],
+        v: [21000, 1000],
+        w: [22000, 1000],
+        x: [23000, 1000],
+        y: [24000, 1000],
+        z: [25000, 1000],
+        sch: [26000, 1000],
+        ß: [27000, 1000],
+      },
+    })
+  }
+
+  play(script: string) {
+    return new Promise((resolve) => {
+      this.sound?.play(script)
+      setTimeout(() => {
+        resolve(null)
+      }, 1000)
+    })
+  }
+}
+
 export default function GermanLettersPage() {
   const standardLetters = 'abcdefghijklmnopqrstuvwxyz'.split('')
   const specialLetters = ['ä', 'ö', 'ü', 'ß']
   const allLetters = [...standardLetters, ...specialLetters]
   const queue = useRef<string[]>([])
   const [current, setCurrent] = useState<string | null>(null)
-
+  const sound = useRef<Sound | null>(null)
   useEffect(() => {
     if (current) {
-      speak(current).then(() => {
+      sound.current?.play(current).then(() => {
         if (queue.current.length > 0) {
           setCurrent(queue.current[0])
           queue.current = queue.current.slice(1)
@@ -132,12 +182,20 @@ export default function GermanLettersPage() {
       })
     }
   })
+  useEffect(() => {
+    sound.current = new Sound()
+  }, [])
 
   function play(letters: string[]) {
     queue.current = letters
     setCurrent(null) // reset current
     setCurrent(queue.current[0])
     queue.current = queue.current.slice(1)
+  }
+
+  function clear() {
+    queue.current = []
+    setCurrent(null)
   }
 
   return (
@@ -147,12 +205,16 @@ export default function GermanLettersPage() {
           <h1 className="text-3xl font-semibold">
             German Letters
           </h1>
-          <button
-            onClick={() => play(allLetters)}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Play All
-          </button>
+          <div className="flex items-center justify-end gap-2">
+            { queue.current.length > 1 ? <button onClick={() => clear()} className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Stop</button> : null}
+            <button
+              onClick={() => play(allLetters)}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={current !== null}
+            >
+              Play All
+            </button>
+          </div>
         </div>
         <div className="mb-10">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -186,7 +248,10 @@ export default function GermanLettersPage() {
                   <div className="text-xs text-muted-foreground">
                     {IPAS[letter as keyof typeof IPAS]}
                   </div>
-                  <div className="text-xs text-muted-foreground capitalize">
+                  <div className="text-md mt-2 text-muted-foreground capitalize" onClick={(e) => {
+                    e.stopPropagation()
+                    speak(code[letter as keyof typeof code])
+                  }}>
                     {code[letter as keyof typeof code]}
                   </div>
                 </CardContent>
