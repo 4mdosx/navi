@@ -1,6 +1,6 @@
 'use server'
 import 'server-only'
-import db from '@/modules/database/service'
+import { db } from '@/modules/database/service'
 import { KV, kvTable } from '@/modules/database/schema'
 import { eq, and } from 'drizzle-orm'
 import { verifySessionGuard } from '@/modules/auth/service'

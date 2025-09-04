@@ -6,3 +6,13 @@ export const kvTable = sqliteTable('kv_table', {
   key: text().notNull(),
   value: text().notNull(),
 })
+
+export type Todo = typeof todoTable.$inferSelect
+export const todoTable = sqliteTable('todos', {
+  id: int().primaryKey({ autoIncrement: true }),
+  title: text().notNull(),
+  description: text(),
+  completed: int().default(0).notNull(), // 0 = false, 1 = true
+  createdAt: text().notNull(),
+  updatedAt: text().notNull(),
+})

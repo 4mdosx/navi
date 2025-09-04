@@ -11,7 +11,6 @@ const LoginSchema = z.object({
 })
 
 export async function login(loginData: z.infer<typeof LoginSchema>) {
-  console.log(loginData)
   const validatedFields = LoginSchema.safeParse({
     code: loginData.code,
   })
