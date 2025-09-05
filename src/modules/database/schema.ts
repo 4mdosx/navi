@@ -15,4 +15,6 @@ export const todoTable = sqliteTable('todos', {
   completed: int().default(0).notNull(), // 0 = false, 1 = true
   createdAt: text().notNull(),
   updatedAt: text().notNull(),
+  deletedAt: text(), // null = not deleted, timestamp = deleted
+  commit: text({ mode: 'json' }).notNull(),
 })
