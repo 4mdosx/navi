@@ -1,26 +1,34 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { getTodo, updateTodo, deleteTodo, createTodo, restoreTodo, addCommitToTodo, getTodoCommits } from '../../actions/todo'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import Link from 'next/link'
 import { Todo, TodoCommit } from '@/types/todo'
-import { BookPlus, BookText, BookMarked } from 'lucide-react'
+import { useTodoDetailStore } from '@/stores/todoDetailStore'
+import CommitList from '../components/CommitList'
+import TodoInput from '../components/TodoInput'
 
 export default function TodoDetailPage() {
   const params = useParams()
   const router = useRouter()
   const todoId = parseInt(params.id as string)
 
-  const [todo, setTodo] = useState<Todo | null>(null)
-  const [progressUpdates, setProgressUpdates] = useState<TodoCommit[]>([])
-  const [message, setMessage] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [sending, setSending] = useState(false)
+  const {
+    todo,
+    progressUpdates,
+    loading,
+    sending,
+    setTodo,
+    setProgressUpdates,
+    addProgressUpdate,
+    setLoading,
+    setSending,
+    reset
+  } = useTodoDetailStore()
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -57,24 +65,22 @@ export default function TodoDetailPage() {
     } finally {
       setLoading(false)
     }
-  }, [todoId, router])
+  }, [todoId, router, setTodo, setProgressUpdates, setLoading])
 
   useEffect(() => {
+    reset() // 重置状态
     loadTodo()
-  }, [todoId, loadTodo])
+  }, [todoId, loadTodo, reset])
 
   useEffect(() => {
     scrollToBottom()
   }, [progressUpdates])
 
-  const handleSendProgressUpdate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!message.trim() || sending || !todo) return
+  const handleSendProgressUpdate = async (messageText: string) => {
+    if (!messageText.trim() || sending || !todo) return
 
     setSending(true)
     try {
-      const messageText = message.trim()
-
       // 如果是第一条用户消息，更新任务标题
       if (todo.id === 0) {
         const newTodo = await createTodo(messageText)
@@ -94,9 +100,7 @@ export default function TodoDetailPage() {
       await addCommitToTodo(todo.id, newUpdate)
 
       // 更新本地状态
-      setProgressUpdates(prev => [...prev, newUpdate])
-      setMessage('')
-      inputRef.current?.focus()
+      addProgressUpdate(newUpdate)
     } catch (error) {
       console.error('Failed to send progress update:', error)
     } finally {
@@ -123,7 +127,7 @@ export default function TodoDetailPage() {
       await addCommitToTodo(todo.id, newUpdate)
 
       // 更新本地状态
-      setProgressUpdates(prev => [...prev, newUpdate])
+      addProgressUpdate(newUpdate)
     } catch (error) {
       console.error('Failed to toggle todo:', error)
     }
@@ -151,21 +155,6 @@ export default function TodoDetailPage() {
     }
   }
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60)
-
-    if (diffInHours < 1) {
-      return '刚刚'
-    } else if (diffInHours < 24) {
-      return `${Math.floor(diffInHours)}小时前`
-    } else if (diffInHours < 48) {
-      return '昨天'
-    } else {
-      return date.toLocaleDateString('zh-CN')
-    }
-  }
 
   if (loading || !todo) {
     return (
@@ -239,87 +228,17 @@ export default function TodoDetailPage() {
 
       {/* Commit Timeline Area */}
       <div className="flex-1 overflow-y-auto p-4">
-        {progressUpdates.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <p className="text-gray-500">还没有提交记录</p>
-              <p className="text-sm text-gray-400">在下方输入框中记录你的进度</p>
-            </div>
-          </div>
-        ) : (
-          <div className="max-w-4xl mx-auto">
-            <div className="relative">
-              {/* Timeline line */}
-              <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200"></div>
-
-              {progressUpdates.map((update) => (
-                <div key={update.id} className="relative flex items-start gap-4 mb-6 last:mb-0">
-                  {/* Timeline dot */}
-                  <div className={`relative z-10 w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0 shadow-lg ${
-                    update.action === 'create'
-                      ? 'bg-green-500 ring-4 ring-green-100'
-                      : update.action === 'update'
-                      ? 'bg-blue-500 ring-4 ring-blue-100'
-                      : 'bg-red-500 ring-4 ring-red-100'
-                  }`}>
-                    {update.action === 'create' ? (
-                      <BookPlus />
-                    ) : update.action === 'update' ? (
-                      <BookText />
-                    ) : (
-                      <BookMarked />
-                    )}
-                  </div>
-
-                  {/* Commit content */}
-                  <div className="flex-1 min-w-0 bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-gray-500">
-                          {formatTime(update.timestamp)}
-                        </span>
-                      </div>
-                      <p className="text-gray-900 leading-relaxed">{update.message}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <CommitList progressUpdates={progressUpdates} />
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input Area */}
       <div className="bg-white border-t border-gray-200 p-4">
-        <form onSubmit={handleSendProgressUpdate} className="flex gap-2">
-          <Input
-            ref={inputRef}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder={todo?.title === '新任务' ? "输入任务标题..." : "分享你的进度..."}
-            className="flex-1 rounded-full border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-            disabled={sending}
-          />
-          <Button
-            type="submit"
-            disabled={!message.trim() || sending}
-            className="rounded-full px-6 bg-blue-500 hover:bg-blue-600 disabled:opacity-50"
-          >
-            {sending ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            )}
-          </Button>
-        </form>
+        <TodoInput
+          onSubmit={handleSendProgressUpdate}
+          placeholder={todo?.title === '新任务' ? "输入任务标题..." : "分享你的进度..."}
+          disabled={sending}
+        />
       </div>
     </div>
   )
