@@ -27,7 +27,7 @@
     "howler": "^2.2.4",
     "html2canvas": "^1.4.1",
     "jose": "^5.9.6",
-    "lucide-react": "^0.483.0",
+    "lucide-react": "^0.542.0",
     "next": "^15.3.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -5,6 +5,7 @@ import { todoTable } from '@/modules/database/schema'
 import { eq, isNull, not } from 'drizzle-orm'
 import { verifySessionGuard } from '@/modules/auth/service'
 import { v4 as uuidv4 } from 'uuid'
+import { TodoCommit } from '@/types/todo'
 
 export async function createTodo(title: string, description?: string) {
   await verifySessionGuard()
@@ -128,4 +129,41 @@ export async function toggleTodo(id: number) {
     .returning()
 
   return result[0]
+}
+
+export async function addCommitToTodo(id: number, commit: TodoCommit) {
+  await verifySessionGuard()
+
+  const todo = await db.select().from(todoTable).where(eq(todoTable.id, id)).limit(1)
+
+  if (todo.length === 0) {
+    throw new Error('Todo not found')
+  }
+
+  const existingCommits = todo[0].commit as TodoCommit[]
+  const updatedCommits = [...existingCommits, commit]
+  const now = new Date().toISOString()
+
+  const result = await db
+    .update(todoTable)
+    .set({
+      commit: updatedCommits,
+      updatedAt: now,
+    })
+    .where(eq(todoTable.id, id))
+    .returning()
+
+  return result[0]
+}
+
+export async function getTodoCommits(id: number): Promise<TodoCommit[]> {
+  await verifySessionGuard()
+
+  const todo = await db.select().from(todoTable).where(eq(todoTable.id, id)).limit(1)
+
+  if (todo.length === 0) {
+    throw new Error('Todo not found')
+  }
+
+  return todo[0].commit as TodoCommit[]
 }

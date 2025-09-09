@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { getTodo, updateTodo, deleteTodo, createTodo, restoreTodo } from '../../actions/todo'
+import { getTodo, updateTodo, deleteTodo, createTodo, restoreTodo, addCommitToTodo, getTodoCommits } from '../../actions/todo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import Link from 'next/link'
 import { Todo, TodoCommit } from '@/types/todo'
+import { BookPlus, BookText, BookMarked } from 'lucide-react'
 
 export default function TodoDetailPage() {
   const params = useParams()
@@ -37,6 +38,7 @@ export default function TodoDetailPage() {
           updatedAt: new Date().toISOString(),
           deletedAt: null
         } as Todo)
+        setProgressUpdates([])
         return
       }
       const todoData = await getTodo(todoId)
@@ -46,7 +48,9 @@ export default function TodoDetailPage() {
       }
       setTodo(todoData as Todo)
 
-      setProgressUpdates([])
+      // 加载commit历史
+      const commits = await getTodoCommits(todoId)
+      setProgressUpdates(commits)
     } catch (error) {
       console.error('Failed to load todo:', error)
       router.push('/todo')
@@ -86,6 +90,10 @@ export default function TodoDetailPage() {
         type: 'user'
       }
 
+      // 保存到数据库
+      await addCommitToTodo(todo.id, newUpdate)
+
+      // 更新本地状态
       setProgressUpdates(prev => [...prev, newUpdate])
       setMessage('')
       inputRef.current?.focus()
@@ -111,6 +119,10 @@ export default function TodoDetailPage() {
         type: 'system'
       }
 
+      // 保存到数据库
+      await addCommitToTodo(todo.id, newUpdate)
+
+      // 更新本地状态
       setProgressUpdates(prev => [...prev, newUpdate])
     } catch (error) {
       console.error('Failed to toggle todo:', error)
@@ -225,47 +237,60 @@ export default function TodoDetailPage() {
         </div>
       </div>
 
-      {/* Progress Updates Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      {/* Commit Timeline Area */}
+      <div className="flex-1 overflow-y-auto p-4">
         {progressUpdates.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
-              <p className="text-gray-500">还没有进度更新</p>
-              <p className="text-sm text-gray-400">在下方输入框中分享你的进度</p>
+              <p className="text-gray-500">还没有提交记录</p>
+              <p className="text-sm text-gray-400">在下方输入框中记录你的进度</p>
             </div>
           </div>
         ) : (
-          progressUpdates.map((update) => (
-            <div key={update.id} className={`flex items-start gap-3 ${update.type === 'user' ? 'flex-row-reverse' : ''}`}>
-              {/* Avatar */}
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0 ${
-                update.type === 'user' ? 'bg-blue-500' : 'bg-gray-500'
-              }`}>
-                {update.type === 'user' ? 'U' : 'S'}
-              </div>
+          <div className="max-w-4xl mx-auto">
+            <div className="relative">
+              {/* Timeline line */}
+              <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200"></div>
 
-              {/* Message Bubble */}
-              <div className={`flex-1 min-w-0 ${update.type === 'user' ? 'flex flex-col items-end' : ''}`}>
-                <div className={`bg-white rounded-2xl px-4 py-3 shadow-sm border border-gray-100 max-w-xs ${
-                  update.type === 'user'
-                    ? 'rounded-tr-sm bg-blue-50 border-blue-200'
-                    : 'rounded-tl-sm'
-                }`}>
-                  <p className="text-gray-900">{update.message}</p>
-                </div>
+              {progressUpdates.map((update) => (
+                <div key={update.id} className="relative flex items-start gap-4 mb-6 last:mb-0">
+                  {/* Timeline dot */}
+                  <div className={`relative z-10 w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0 shadow-lg ${
+                    update.action === 'create'
+                      ? 'bg-green-500 ring-4 ring-green-100'
+                      : update.action === 'update'
+                      ? 'bg-blue-500 ring-4 ring-blue-100'
+                      : 'bg-red-500 ring-4 ring-red-100'
+                  }`}>
+                    {update.action === 'create' ? (
+                      <BookPlus />
+                    ) : update.action === 'update' ? (
+                      <BookText />
+                    ) : (
+                      <BookMarked />
+                    )}
+                  </div>
 
-                {/* Time */}
-                <div className={`text-xs text-gray-400 mt-1 ${update.type === 'user' ? 'text-right' : 'ml-2'}`}>
-                  {formatTime(update.timestamp)}
+                  {/* Commit content */}
+                  <div className="flex-1 min-w-0 bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-gray-500">
+                          {formatTime(update.timestamp)}
+                        </span>
+                      </div>
+                      <p className="text-gray-900 leading-relaxed">{update.message}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
-          ))
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
