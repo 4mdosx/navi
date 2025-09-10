@@ -156,6 +156,33 @@ export async function addCommitToTodo(id: number, commit: TodoCommit) {
   return result[0]
 }
 
+export async function updateCommitInTodo(id: number, commitId: string, updates: Partial<TodoCommit>) {
+  await verifySessionGuard()
+
+  const todo = await db.select().from(todoTable).where(eq(todoTable.id, id)).limit(1)
+
+  if (todo.length === 0) {
+    throw new Error('Todo not found')
+  }
+
+  const existingCommits = todo[0].commit as TodoCommit[]
+  const updatedCommits = existingCommits.map(commit =>
+    commit.id === commitId ? { ...commit, ...updates } : commit
+  )
+  const now = new Date().toISOString()
+
+  const result = await db
+    .update(todoTable)
+    .set({
+      commit: updatedCommits,
+      updatedAt: now,
+    })
+    .where(eq(todoTable.id, id))
+    .returning()
+
+  return result[0]
+}
+
 export async function getTodoCommits(id: number): Promise<TodoCommit[]> {
   await verifySessionGuard()
 

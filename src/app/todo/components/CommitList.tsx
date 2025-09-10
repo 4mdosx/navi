@@ -3,7 +3,7 @@ import CommitItem from './CommitItem'
 
 interface CommitListProps {
   progressUpdates: TodoCommit[]
-  onUpdateCheckpointStatus?: (checkpointId: string, status: CheckpointStatus) => void
+  onUpdateCheckpointStatus?: (checkpointId: string, status: CheckpointStatus, payload: Record<string, unknown>) => void
 }
 
 export default function CommitList({ progressUpdates, onUpdateCheckpointStatus }: CommitListProps) {

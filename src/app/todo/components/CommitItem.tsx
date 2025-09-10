@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { TodoCommit, CheckpointStatus } from '@/types/todo'
-import { BookPlus, BookText, BookMarked, CheckCircle, Flag, ChevronDown, ChevronRight, Clock, X } from 'lucide-react'
+import { BookPlus, BookText, BookMarked, CheckCircle, Flag, ChevronDown, ChevronRight, X, Play, Pause } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface CommitItemProps {
   update: TodoCommit
-  onUpdateCheckpointStatus?: (checkpointId: string, status: CheckpointStatus) => void
+  onUpdateCheckpointStatus?: (checkpointId: string, status: CheckpointStatus, payload: Record<string, unknown>) => void
 }
 
 const formatTime = (dateString: string) => {
@@ -59,8 +60,10 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
 
   const getStatusIcon = (status: CheckpointStatus) => {
     switch (status) {
+      case 'pending':
+        return <Pause className="w-3 h-3" />
       case 'open':
-        return <Clock className="w-3 h-3" />
+        return <Play className="w-3 h-3" />
       case 'close':
         return <X className="w-3 h-3" />
       case 'done':
@@ -70,6 +73,8 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
 
   const getStatusColor = (status: CheckpointStatus) => {
     switch (status) {
+      case 'pending':
+        return 'text-yellow-600 bg-yellow-50 border-yellow-200'
       case 'open':
         return 'text-blue-600 bg-blue-50 border-blue-200'
       case 'close':
@@ -77,6 +82,34 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
       case 'done':
         return 'text-green-600 bg-green-50 border-green-200'
     }
+  }
+
+  const getStatusText = (status: CheckpointStatus) => {
+    switch (status) {
+      case 'pending':
+        return '待开始'
+      case 'open':
+        return '进行中'
+      case 'close':
+        return '已关闭'
+      case 'done':
+        return '已完成'
+    }
+  }
+
+  const handleStatusChange = (newStatus: CheckpointStatus) => {
+    if (!onUpdateCheckpointStatus || !isCheckpoint) return
+
+    const now = new Date().toISOString()
+    const updatedPayload = { ...(update.payload || {}) }
+
+    if (newStatus === 'open') {
+      updatedPayload.startedAt = now
+    } else if (newStatus === 'close' || newStatus === 'done') {
+      updatedPayload.completedAt = now
+    }
+
+    onUpdateCheckpointStatus(update.id, newStatus, updatedPayload)
   }
 
   const hasSubCommits = update.subCommits && update.subCommits.length > 0
@@ -100,7 +133,7 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
               {isCheckpoint && update.status && (
                 <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(update.status)}`}>
                   {getStatusIcon(update.status)}
-                  {update.status === 'open' ? '进行中' : update.status === 'close' ? '已关闭' : '已完成'}
+                  {getStatusText(update.status)}
                 </span>
               )}
             </div>
@@ -117,25 +150,60 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
           </div>
           <p className="text-gray-900 leading-relaxed">{update.message}</p>
 
-          {/* Checkpoint actions */}
-          {isCheckpoint && update.status === 'open' && onUpdateCheckpointStatus && (
-            <div className="flex gap-2 mt-3">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onUpdateCheckpointStatus(update.id, 'close')}
-                className="text-gray-600"
+          {/* Checkpoint status selector */}
+          {isCheckpoint && onUpdateCheckpointStatus && (
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                状态
+              </label>
+              <Select
+                value={update.status || 'pending'}
+                onValueChange={(value) => handleStatusChange(value as CheckpointStatus)}
               >
-                关闭
-              </Button>
-              <Button
-                size="sm"
-                variant="default"
-                onClick={() => onUpdateCheckpointStatus(update.id, 'done')}
-                className="bg-green-500 hover:bg-green-600"
-              >
-                完成
-              </Button>
+                <SelectTrigger className="w-full bg-white">
+                  <SelectValue placeholder="选择状态" />
+                </SelectTrigger>
+                <SelectContent className="bg-white">
+                  <SelectItem value="pending" className="hover:bg-yellow-50 focus:bg-yellow-50">
+                    <div className="flex items-center gap-2">
+                      <Pause className="w-4 h-4 text-yellow-600" />
+                      <span>待开始</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="open" className="hover:bg-blue-50 focus:bg-blue-50">
+                    <div className="flex items-center gap-2">
+                      <Play className="w-4 h-4 text-blue-600" />
+                      <span>进行中</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="close" className="hover:bg-gray-50 focus:bg-gray-50">
+                    <div className="flex items-center gap-2">
+                      <X className="w-4 h-4 text-gray-600" />
+                      <span>已关闭</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="done" className="hover:bg-green-50 focus:bg-green-50">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      <span>已完成</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* 显示时间信息 */}
+              {update.payload?.startedAt && (
+                <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                  <Play className="w-3 h-3" />
+                  开始时间: {new Date(update.payload.startedAt).toLocaleString('zh-CN')}
+                </p>
+              )}
+              {update.payload?.completedAt && (
+                <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" />
+                  完成时间: {new Date(update.payload.completedAt).toLocaleString('zh-CN')}
+                </p>
+              )}
             </div>
           )}
         </div>
