@@ -1,11 +1,12 @@
-import { TodoCommit } from '@/types/todo'
+import { TodoCommit, CheckpointStatus } from '@/types/todo'
 import CommitItem from './CommitItem'
 
 interface CommitListProps {
   progressUpdates: TodoCommit[]
+  onUpdateCheckpointStatus?: (checkpointId: string, status: CheckpointStatus) => void
 }
 
-export default function CommitList({ progressUpdates }: CommitListProps) {
+export default function CommitList({ progressUpdates, onUpdateCheckpointStatus }: CommitListProps) {
   if (progressUpdates.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -29,7 +30,11 @@ export default function CommitList({ progressUpdates }: CommitListProps) {
         <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200"></div>
 
         {progressUpdates.map((update) => (
-          <CommitItem key={update.id} update={update} />
+          <CommitItem
+            key={update.id}
+            update={update}
+            onUpdateCheckpointStatus={onUpdateCheckpointStatus}
+          />
         ))}
       </div>
     </div>

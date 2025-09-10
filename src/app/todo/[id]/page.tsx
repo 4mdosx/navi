@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { getTodo, updateTodo, deleteTodo, createTodo, restoreTodo, addCommitToTodo, getTodoCommits } from '../../actions/todo'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
-import { Todo, TodoCommit } from '@/types/todo'
+import { Todo, TodoCommit, CheckpointStatus } from '@/types/todo'
 import { useTodoDetailStore } from '@/stores/todoDetailStore'
 import CommitList from '../components/CommitList'
 import TodoInput from '../components/TodoInput'
@@ -92,8 +92,10 @@ export default function TodoDetailPage() {
         id: Date.now().toString(),
         message: messageText,
         timestamp: new Date().toISOString(),
-        action: 'update',
-        type: 'user'
+        type: 'message',
+        author: 'user',
+        raw: messageText,
+        payload: {}
       }
 
       // 保存到数据库
@@ -108,6 +110,38 @@ export default function TodoDetailPage() {
     }
   }
 
+
+  const handleUpdateCheckpointStatus = async (checkpointId: string, status: CheckpointStatus) => {
+    if (!todo) return
+
+    // 更新本地状态中的checkpoint状态
+    setProgressUpdates((prev: TodoCommit[]) => prev.map((commit: TodoCommit) =>
+      commit.id === checkpointId
+        ? { ...commit, status, payload: { ...commit.payload, status } }
+        : commit
+    ))
+
+    // 创建状态更新commit
+    const statusUpdate: TodoCommit = {
+      id: Date.now().toString(),
+      message: `检查点状态更新: ${status === 'open' ? '进行中' : status === 'close' ? '已关闭' : '已完成'}`,
+      timestamp: new Date().toISOString(),
+      type: 'message',
+      author: 'system',
+      raw: status,
+      payload: {
+        checkpointId,
+        status,
+        action: 'status_update'
+      },
+      checkpointId
+    }
+
+    // 保存到数据库
+    await addCommitToTodo(todo.id, statusUpdate)
+    addProgressUpdate(statusUpdate)
+  }
+
   const handleToggleComplete = async () => {
     if (!todo) return
 
@@ -119,8 +153,12 @@ export default function TodoDetailPage() {
         id: Date.now().toString(),
         message: updatedTodo.completed ? '任务已完成' : '任务重新开始',
         timestamp: new Date().toISOString(),
-        action: 'update',
-        type: 'system'
+        type: updatedTodo.completed ? 'done' : 'message',
+        author: 'system',
+        raw: updatedTodo.completed ? '任务已完成' : '任务重新开始',
+        payload: {
+          completed: updatedTodo.completed
+        }
       }
 
       // 保存到数据库
@@ -226,9 +264,15 @@ export default function TodoDetailPage() {
         </div>
       </div>
 
-      {/* Commit Timeline Area */}
+      {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-4">
-        <CommitList progressUpdates={progressUpdates} />
+        <div className="max-w-4xl mx-auto">
+          {/* Commit Timeline */}
+          <CommitList
+            progressUpdates={progressUpdates}
+            onUpdateCheckpointStatus={handleUpdateCheckpointStatus}
+          />
+        </div>
         <div ref={messagesEndRef} />
       </div>
 
