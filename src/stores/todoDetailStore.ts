@@ -16,7 +16,6 @@ interface TodoDetailState {
   setMessage: (message: string) => void
   setLoading: (loading: boolean) => void
   setSending: (sending: boolean) => void
-  clearMessage: () => void
   reset: () => void
 }
 
@@ -39,7 +38,6 @@ export const useTodoDetailStore = create<TodoDetailState>((set) => ({
   setMessage: (message) => set({ message }),
   setLoading: (loading) => set({ loading }),
   setSending: (sending) => set({ sending }),
-  clearMessage: () => set({ message: '' }),
   reset: () => set({
     todo: null,
     progressUpdates: [],

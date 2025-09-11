@@ -8,10 +8,9 @@ export interface Command {
 
 interface UseCommandMenuProps {
   setMessage: (message: string) => void
-  clearMessage: () => void
 }
 
-export function useCommandMenu({ setMessage, clearMessage }: UseCommandMenuProps) {
+export function useCommandMenu({ setMessage }: UseCommandMenuProps) {
   // 命令提示相关状态
   const [showCommandMenu, setShowCommandMenu] = useState(false)
   const [filteredCommands, setFilteredCommands] = useState<Command[]>([])
@@ -24,31 +23,7 @@ export function useCommandMenu({ setMessage, clearMessage }: UseCommandMenuProps
       name: '/del',
       description: '删除最近的commit',
       action: () => {
-        setMessage('删除最近的commit')
-        setShowCommandMenu(false)
-      }
-    },
-    {
-      name: '/redo',
-      description: '重新执行上一个操作',
-      action: () => {
-        setMessage('重新执行上一个操作')
-        setShowCommandMenu(false)
-      }
-    },
-    {
-      name: '/help',
-      description: '显示帮助信息',
-      action: () => {
-        setMessage('显示帮助信息')
-        setShowCommandMenu(false)
-      }
-    },
-    {
-      name: '/status',
-      description: '查看当前状态',
-      action: () => {
-        setMessage('查看当前状态')
+        setMessage('/del')
         setShowCommandMenu(false)
       }
     },
@@ -56,27 +31,11 @@ export function useCommandMenu({ setMessage, clearMessage }: UseCommandMenuProps
       name: '/checkpoint',
       description: '创建检查点',
       action: () => {
-        setMessage('')
-        setShowCommandMenu(false)
-      }
-    },
-    {
-      name: '/message',
-      description: '切换到消息模式',
-      action: () => {
-        setMessage('')
-        setShowCommandMenu(false)
-      }
-    },
-    {
-      name: '/clear',
-      description: '清空输入框',
-      action: () => {
-        clearMessage()
+        setMessage('/checkpoint ')
         setShowCommandMenu(false)
       }
     }
-  ], [setMessage, clearMessage])
+  ], [setMessage])
 
   // 命令匹配和过滤逻辑
   const filterCommands = useCallback((input: string) => {

@@ -14,7 +14,7 @@ interface TodoInputProps {
 
 export default function TodoInput({ onSubmit, placeholder, disabled = false }: TodoInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const { message, setMessage, sending, clearMessage } = useTodoDetailStore()
+  const { message, setMessage, sending } = useTodoDetailStore()
 
   // 使用命令菜单Hook
   const {
@@ -24,14 +24,14 @@ export default function TodoInput({ onSubmit, placeholder, disabled = false }: T
     handleInputChange,
     handleCommandKeyDown,
     selectCommand
-  } = useCommandMenu({ setMessage, clearMessage })
+  } = useCommandMenu({ setMessage })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!message.trim() || sending || disabled) return
 
     onSubmit(message.trim())
-    clearMessage()
+    setMessage('')
     inputRef.current?.focus()
   }
 
