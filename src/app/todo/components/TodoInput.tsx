@@ -5,9 +5,11 @@ import { useTodoDetailStore } from '@/stores/todoDetailStore'
 import { Send } from 'lucide-react'
 import { useCommandMenu } from './hooks/useCommandMenu'
 import CommandMenu from './CommandMenu'
+import { parseInputToCommit } from '@/lib/commandParser'
+import { TodoCommit } from '@/types/todo'
 
 interface TodoInputProps {
-  onSubmit: (message: string) => void
+  onSubmit: (commit: Omit<TodoCommit, 'id' | 'timestamp'>) => void
   placeholder?: string
   disabled?: boolean
 }
@@ -30,7 +32,9 @@ export default function TodoInput({ onSubmit, placeholder, disabled = false }: T
     e.preventDefault()
     if (!message.trim() || sending || disabled) return
 
-    onSubmit(message.trim())
+    // 使用命令解析器将输入转换为结构化的 commit
+    const parsedCommit = parseInputToCommit(message.trim())
+    onSubmit(parsedCommit)
     setMessage('')
     inputRef.current?.focus()
   }

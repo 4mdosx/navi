@@ -21,8 +21,12 @@ export async function createTodo(title: string, description?: string) {
       id: uuidv4(),
       message: title,
       timestamp: now,
-      type: 'user',
-      action: 'create',
+      type: 'action',
+      author: 'user',
+      raw: title,
+      payload: {
+        action: 'create'
+      },
     }],
   }).returning()
 
@@ -131,29 +135,44 @@ export async function toggleTodo(id: number) {
   return result[0]
 }
 
-export async function addCommitToTodo(id: number, commit: TodoCommit) {
+export async function addCommitToTodo(id: number, commit: Omit<TodoCommit, 'id'>) {
   await verifySessionGuard()
 
-  const todo = await db.select().from(todoTable).where(eq(todoTable.id, id)).limit(1)
-
-  if (todo.length === 0) {
-    throw new Error('Todo not found')
+  switch (commit.type) {
+    case 'action':
+      switch (commit.payload.action) {
+        case 'create':
+          break
+        case 'done':
+          break
+      }
+      break
+    case 'message':
+    case 'checkpoint':
+      break
+    default:
+      throw new Error('Invalid commit type')
   }
+  // const todo = await db.select().from(todoTable).where(eq(todoTable.id, id)).limit(1)
 
-  const existingCommits = todo[0].commit as TodoCommit[]
-  const updatedCommits = [...existingCommits, commit]
-  const now = new Date().toISOString()
+  // if (todo.length === 0) {
+  //   throw new Error('Todo not found')
+  // }
 
-  const result = await db
-    .update(todoTable)
-    .set({
-      commit: updatedCommits,
-      updatedAt: now,
-    })
-    .where(eq(todoTable.id, id))
-    .returning()
+  // const existingCommits = todo[0].commit as TodoCommit[]
+  // const updatedCommits = [...existingCommits, commit]
+  // const now = new Date().toISOString()
 
-  return result[0]
+  // const result = await db
+  //   .update(todoTable)
+  //   .set({
+  //     commit: updatedCommits,
+  //     updatedAt: now,
+  //   })
+  //   .where(eq(todoTable.id, id))
+  //   .returning()
+
+  // return result[0]
 }
 
 export async function updateCommitInTodo(id: number, commitId: string, updates: Partial<TodoCommit>) {

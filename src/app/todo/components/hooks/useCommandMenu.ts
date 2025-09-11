@@ -20,10 +20,42 @@ export function useCommandMenu({ setMessage }: UseCommandMenuProps) {
   // 预定义命令列表
   const commands: Command[] = useMemo(() => [
     {
-      name: '/del',
-      description: '删除最近的commit',
+      name: '/done',
+      description: '标记为完成',
       action: () => {
-        setMessage('/del')
+        setMessage('/done')
+        setShowCommandMenu(false)
+      }
+    },
+    {
+      name: '/start',
+      description: '开始任务，更新任务时间',
+      action: () => {
+        setMessage('/start')
+        setShowCommandMenu(false)
+      }
+    },
+    {
+      name: '/pending',
+      description: '标记任务为未完成',
+      action: () => {
+        setMessage('/pending')
+        setShowCommandMenu(false)
+      }
+    },
+    {
+      name: '/close',
+      description: '关闭任务，更新任务时间',
+      action: () => {
+        setMessage('/close')
+        setShowCommandMenu(false)
+      }
+    },
+    {
+      name: '/undo',
+      description: '撤销最近的 commit',
+      action: () => {
+        setMessage('/undo')
         setShowCommandMenu(false)
       }
     },

@@ -3,10 +3,10 @@ import { TodoCommit, CheckpointStatus } from '@/types/todo'
 import { BookPlus, BookText, BookMarked, CheckCircle, Flag, ChevronDown, ChevronRight, X, Play, Pause } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useTodoDetailStore } from '@/stores/todoDetailStore'
 
 interface CommitItemProps {
-  update: TodoCommit
-  onUpdateCheckpointStatus?: (checkpointId: string, status: CheckpointStatus, payload: Record<string, unknown>) => void
+  commit: TodoCommit
 }
 
 const formatTime = (dateString: string) => {
@@ -25,17 +25,23 @@ const formatTime = (dateString: string) => {
   }
 }
 
-export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitItemProps) {
+export default function CommitItem({ commit }: CommitItemProps) {
+  const { handleUpdateCheckpointStatus } = useTodoDetailStore()
   const [isExpanded, setIsExpanded] = useState(false)
 
   const getIcon = () => {
-    switch (update.type) {
-      case 'create':
-        return <BookPlus />
+    switch (commit.type) {
+      case 'action':
+        switch (commit.payload.action) {
+          case 'create':
+            return <BookPlus />
+          case 'done':
+            return <CheckCircle />
+          case 'update':
+            return <BookText />
+        }
       case 'message':
         return <BookText />
-      case 'done':
-        return <CheckCircle />
       case 'checkpoint':
         return <Flag />
       default:
@@ -44,13 +50,18 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
   }
 
   const getIconBgColor = () => {
-    switch (update.type) {
-      case 'create':
-        return 'bg-green-500 ring-4 ring-green-100'
+    switch (commit.type) {
+      case 'action':
+        switch (commit.payload.action) {
+          case 'create':
+            return 'bg-green-500 ring-4 ring-green-100'
+          case 'done':
+            return 'bg-emerald-500 ring-4 ring-emerald-100'
+          case 'update':
+            return 'bg-blue-500 ring-4 ring-blue-100'
+        }
       case 'message':
         return 'bg-blue-500 ring-4 ring-blue-100'
-      case 'done':
-        return 'bg-emerald-500 ring-4 ring-emerald-100'
       case 'checkpoint':
         return 'bg-purple-500 ring-4 ring-purple-100'
       default:
@@ -98,10 +109,10 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
   }
 
   const handleStatusChange = (newStatus: CheckpointStatus) => {
-    if (!onUpdateCheckpointStatus || !isCheckpoint) return
+    if (!handleUpdateCheckpointStatus || commit.type !== 'checkpoint') return
 
     const now = new Date().toISOString()
-    const updatedPayload = { ...(update.payload || {}) }
+    const updatedPayload = { ...(commit.payload || {}) }
 
     if (newStatus === 'open') {
       updatedPayload.startedAt = now
@@ -109,11 +120,10 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
       updatedPayload.completedAt = now
     }
 
-    onUpdateCheckpointStatus(update.id, newStatus, updatedPayload)
+    handleUpdateCheckpointStatus(commit.id, newStatus, updatedPayload)
   }
 
-  const hasSubCommits = update.subCommits && update.subCommits.length > 0
-  const isCheckpoint = update.type === 'checkpoint'
+  const hasSubCommits = commit.subCommits && commit.subCommits.length > 0
 
   return (
     <div className="relative flex items-start gap-4 mb-6 last:mb-0">
@@ -128,12 +138,12 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500">
-                {formatTime(update.timestamp)}
+                {formatTime(commit.timestamp)}
               </span>
-              {isCheckpoint && update.status && (
-                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(update.status)}`}>
-                  {getStatusIcon(update.status)}
-                  {getStatusText(update.status)}
+              {commit.type === 'checkpoint' && commit.status && (
+                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(commit.status)}`}>
+                  {getStatusIcon(commit.status)}
+                  {getStatusText(commit.status)}
                 </span>
               )}
             </div>
@@ -148,16 +158,16 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
               </Button>
             )}
           </div>
-          <p className="text-gray-900 leading-relaxed">{update.message}</p>
+          <p className="text-gray-900 leading-relaxed">{commit.message}</p>
 
           {/* Checkpoint status selector */}
-          {isCheckpoint && onUpdateCheckpointStatus && (
+          {commit.type === 'checkpoint' && (
             <div className="mt-3">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 状态
               </label>
               <Select
-                value={update.status || 'pending'}
+                value={commit.status || 'pending'}
                 onValueChange={(value) => handleStatusChange(value as CheckpointStatus)}
               >
                 <SelectTrigger className="w-full bg-white">
@@ -192,16 +202,16 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
               </Select>
 
               {/* 显示时间信息 */}
-              {update.payload?.startedAt && (
+              {commit.payload?.startedAt && (
                 <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
                   <Play className="w-3 h-3" />
-                  开始时间: {new Date(update.payload.startedAt).toLocaleString('zh-CN')}
+                  开始时间: {new Date(commit.payload.startedAt).toLocaleString('zh-CN')}
                 </p>
               )}
-              {update.payload?.completedAt && (
+              {commit.payload?.completedAt && (
                 <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
                   <CheckCircle className="w-3 h-3" />
-                  完成时间: {new Date(update.payload.completedAt).toLocaleString('zh-CN')}
+                  完成时间: {new Date(commit.payload.completedAt).toLocaleString('zh-CN')}
                 </p>
               )}
             </div>
@@ -209,10 +219,10 @@ export default function CommitItem({ update, onUpdateCheckpointStatus }: CommitI
         </div>
 
         {/* Sub commits */}
-        {hasSubCommits && isExpanded && (
+        {hasSubCommits && commit.type === 'checkpoint' && isExpanded && (
           <div className="border-t border-gray-100 bg-gray-50 rounded-b-lg">
             <div className="p-4 space-y-3">
-              {update.subCommits!.map((subCommit) => (
+              {commit.subCommits!.map((subCommit: TodoCommit) => (
                 <div key={subCommit.id} className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
                   <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                     {getIcon()}

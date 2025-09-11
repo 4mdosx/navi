@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { getTodo, updateTodo, deleteTodo, createTodo, restoreTodo, addCommitToTodo, getTodoCommits } from '../../actions/todo'
-import { Button } from '@/components/ui/button'
+import { getTodo, createTodo, getTodoCommits } from '../../actions/todo'
 import Link from 'next/link'
-import { Todo, TodoCommit, CheckpointStatus } from '@/types/todo'
+import { Todo, TodoCommit } from '@/types/todo'
 import { useTodoDetailStore } from '@/stores/todoDetailStore'
 import CommitList from '../components/CommitList'
 import TodoInput from '../components/TodoInput'
+import { v4 as uuidv4 } from 'uuid'
 
 export default function TodoDetailPage() {
   const params = useParams()
@@ -17,12 +17,12 @@ export default function TodoDetailPage() {
 
   const {
     todo,
-    progressUpdates,
+    commits,
     loading,
     sending,
     setTodo,
-    setProgressUpdates,
-    addProgressUpdate,
+    setCommits,
+    addCommit,
     setLoading,
     setSending,
     reset
@@ -44,9 +44,10 @@ export default function TodoDetailPage() {
           completed: 0,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          deletedAt: null
+          deletedAt: null,
+          commit: []
         } as Todo)
-        setProgressUpdates([])
+        setCommits([])
         return
       }
       const todoData = await getTodo(todoId)
@@ -58,14 +59,14 @@ export default function TodoDetailPage() {
 
       // 加载commit历史
       const commits = await getTodoCommits(todoId)
-      setProgressUpdates(commits)
+      setCommits(commits)
     } catch (error) {
       console.error('Failed to load todo:', error)
       router.push('/todo')
     } finally {
       setLoading(false)
     }
-  }, [todoId, router, setTodo, setProgressUpdates, setLoading])
+  }, [todoId, router, setTodo, setCommits, setLoading])
 
   useEffect(() => {
     reset() // 重置状态
@@ -74,125 +75,40 @@ export default function TodoDetailPage() {
 
   useEffect(() => {
     scrollToBottom()
-  }, [progressUpdates])
+  }, [commits])
 
-  const handleSendProgressUpdate = async (messageText: string) => {
-    if (!messageText.trim() || sending || !todo) return
+  const handleSendProgressUpdate = async (parsedCommit: Omit<TodoCommit, 'id' | 'timestamp'>) => {
+    if (!parsedCommit.message.trim() || sending || !todo) return
 
     setSending(true)
     try {
       // 如果是第一条用户消息，更新任务标题
       if (todo.id === 0) {
-        const newTodo = await createTodo(messageText)
+        const newTodo = await createTodo(parsedCommit.message)
         router.push(`/todo/${newTodo.id}`)
         return
       }
 
-      const newUpdate: TodoCommit = {
-        id: Date.now().toString(),
-        message: messageText,
-        timestamp: new Date().toISOString(),
-        type: 'message',
-        author: 'user',
-        raw: messageText,
-        payload: {}
+      const updatedCommit: TodoCommit = {
+        ...parsedCommit,
+        id: uuidv4(),
+        timestamp: new Date().toISOString()
       }
 
-      // 保存到数据库
-      await addCommitToTodo(todo.id, newUpdate)
+      // 更新本地状态，乐观更新
+      addCommit(updatedCommit)
 
-      // 更新本地状态
-      addProgressUpdate(newUpdate)
+      // 保存到数据库, 使用更新后的commit覆盖本地状态
+      // const result = await addCommitToTodo(todo.id, updatedCommit)
+      // console.log('result', result)
     } catch (error) {
       console.error('Failed to send progress update:', error)
+      // TODO: 回滚本地状态
+      // setProgressUpdates((prev: TodoCommit[]) => prev.filter((commit: TodoCommit) => commit.id !== updatedCommit.id))
     } finally {
       setSending(false)
     }
   }
-
-
-  const handleUpdateCheckpointStatus = async (checkpointId: string, status: CheckpointStatus) => {
-    if (!todo) return
-
-    // 更新本地状态中的checkpoint状态
-    setProgressUpdates((prev: TodoCommit[]) => prev.map((commit: TodoCommit) =>
-      commit.id === checkpointId
-        ? { ...commit, status, payload: { ...commit.payload, status } }
-        : commit
-    ))
-
-    // 创建状态更新commit
-    const statusUpdate: TodoCommit = {
-      id: Date.now().toString(),
-      message: `检查点状态更新: ${status === 'open' ? '进行中' : status === 'close' ? '已关闭' : '已完成'}`,
-      timestamp: new Date().toISOString(),
-      type: 'message',
-      author: 'system',
-      raw: status,
-      payload: {
-        checkpointId,
-        status,
-        action: 'status_update'
-      },
-      checkpointId
-    }
-
-    // 保存到数据库
-    await addCommitToTodo(todo.id, statusUpdate)
-    addProgressUpdate(statusUpdate)
-  }
-
-  const handleToggleComplete = async () => {
-    if (!todo) return
-
-    try {
-      const updatedTodo = await updateTodo(todo.id, { completed: !todo.completed })
-      setTodo(updatedTodo as Todo)
-
-      const newUpdate: TodoCommit = {
-        id: Date.now().toString(),
-        message: updatedTodo.completed ? '任务已完成' : '任务重新开始',
-        timestamp: new Date().toISOString(),
-        type: updatedTodo.completed ? 'done' : 'message',
-        author: 'system',
-        raw: updatedTodo.completed ? '任务已完成' : '任务重新开始',
-        payload: {
-          completed: updatedTodo.completed
-        }
-      }
-
-      // 保存到数据库
-      await addCommitToTodo(todo.id, newUpdate)
-
-      // 更新本地状态
-      addProgressUpdate(newUpdate)
-    } catch (error) {
-      console.error('Failed to toggle todo:', error)
-    }
-  }
-
-  const handleDeleteTodo = async () => {
-    if (!todo) return
-
-    try {
-      await deleteTodo(todo.id)
-      router.push('/todo')
-    } catch (error) {
-      console.error('Failed to delete todo:', error)
-    }
-  }
-
-  const handleRestoreTodo = async () => {
-    if (!todo) return
-
-    try {
-      await restoreTodo(todo.id)
-      router.push('/todo')
-    } catch (error) {
-      console.error('Failed to restore todo:', error)
-    }
-  }
-
 
   if (loading || !todo) {
     return (
@@ -230,47 +146,14 @@ export default function TodoDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {todo.deletedAt ? (
-              <Button
-                onClick={handleRestoreTodo}
-                variant="default"
-                size="sm"
-                className="bg-blue-500 hover:bg-blue-600"
-              >
-                恢复
-              </Button>
-            ) : (
-              <>
-                <Button
-                  onClick={handleToggleComplete}
-                  variant={todo.completed ? "outline" : "default"}
-                  size="sm"
-                  className={todo.completed ? "text-green-600 border-green-600" : "bg-green-500 hover:bg-green-600"}
-                >
-                  {todo.completed ? '重新开始' : '标记完成'}
-                </Button>
-                <Button
-                  onClick={handleDeleteTodo}
-                  variant="outline"
-                  size="sm"
-                  className="text-red-600 border-red-600 hover:bg-red-50"
-                >
-                  删除
-                </Button>
-              </>
-            )}
-          </div>
         </div>
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="max-w-4xl mx-auto">
-          {/* Commit Timeline */}
           <CommitList
-            progressUpdates={progressUpdates}
-            onUpdateCheckpointStatus={handleUpdateCheckpointStatus}
+            commits={commits}
           />
         </div>
         <div ref={messagesEndRef} />

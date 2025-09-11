@@ -4,7 +4,8 @@ export type Todo = DatabaseTodo & {
   commit: TodoCommit[]
 }
 
-export type CommitType = 'create' | 'message' | 'done' | 'checkpoint'
+export type CommitType = 'action' | 'message' | 'checkpoint'
+export type ActionType = 'create' | 'done' | 'update' | 'undo'
 
 export type CheckpointStatus = 'pending' | 'open' | 'close' | 'done'
 
