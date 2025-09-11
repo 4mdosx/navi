@@ -1,8 +1,8 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { useTodoDetailStore } from '@/stores/todoDetailStore'
-import { Flag, Send } from 'lucide-react'
+import { Send } from 'lucide-react'
 import { useCommandMenu } from './hooks/useCommandMenu'
 import CommandMenu from './CommandMenu'
 
@@ -15,7 +15,6 @@ interface TodoInputProps {
 export default function TodoInput({ onSubmit, placeholder, disabled = false }: TodoInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const { message, setMessage, sending, clearMessage } = useTodoDetailStore()
-  const [isCheckpointMode, setIsCheckpointMode] = useState(false)
 
   // 使用命令菜单Hook
   const {
@@ -71,12 +70,6 @@ export default function TodoInput({ onSubmit, placeholder, disabled = false }: T
     }
   }
 
-  const toggleCheckpointMode = () => {
-    setIsCheckpointMode(!isCheckpointMode)
-    setMessage(isCheckpointMode ? '' : '')
-    clearMessage()
-  }
-
   // 自动调整Textarea高度
   const adjustTextareaHeight = () => {
     if (inputRef.current) {
@@ -99,8 +92,8 @@ export default function TodoInput({ onSubmit, placeholder, disabled = false }: T
             value={message}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder={isCheckpointMode ? "输入检查点标题..." : (placeholder || "分享你的进度... (Ctrl+Enter发送)")}
-            className="flex-1 min-h-[40px] max-h-[120px] resize-none rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 px-4 py-2 leading-relaxed"
+            placeholder={placeholder || "分享进度... (Ctrl+Enter发送)"}
+            className="flex-1 min-h-[40px] max-h-[120px] resize-none overflow-hidden rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 px-4 py-2 leading-relaxed"
             disabled={sending || disabled}
             rows={1}
           />
@@ -115,7 +108,7 @@ export default function TodoInput({ onSubmit, placeholder, disabled = false }: T
         <Button
           type="submit"
           disabled={!message.trim() || sending || disabled}
-          className={`rounded-lg px-6 py-3 h-auto min-h-[40px] flex items-center justify-center gap-2 ${isCheckpointMode ? 'bg-purple-500 hover:bg-purple-600' : 'bg-blue-500 hover:bg-blue-600'} disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md font-medium`}
+          className={`rounded-lg px-6 py-2 h-auto min-h-[40px] flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md font-medium`}
         >
           {sending ? (
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
