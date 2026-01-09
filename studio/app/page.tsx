@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import NaviIcon from '@/app/components/navi-icon'
+import Icon from '@/app/components/icon'
 import '../style/home.css'
 
 function Header() {
@@ -17,7 +17,7 @@ function Header() {
 function Profile() {
   return (
     <div className="profile flex">
-      <NaviIcon icon="mdi:code" />
+      <Icon icon="mdi:code" />
       <h1>4mdosx@Mokuseif.studio - A Web Development/Designer</h1>
     </div>
   )

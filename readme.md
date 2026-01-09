@@ -39,7 +39,7 @@ Navi 是一个本地化的个人知识管理和内容管理平台，提供 Web �
 
 - **前端**：Next.js 16 + React 19 + TypeScript
 - **UI 组件**：Radix UI + Tailwind CSS
-- **数据库**：SQLite (Prisma ORM)
+- **数据库**：SQLite 
 - **认证**：TOTP 双因素认证
 - **状态管理**：Zustand + SWR
 
@@ -59,6 +59,7 @@ npm install
 ```env
 DB_FILE_NAME=file:./local.db
 TOTP_SECRET=your-totp-secret
+TASKS_ROOT_DIR=./tasks  # 任务根目录（可选，默认为 ./tasks）
 ```
 
 ### 初始化数据库

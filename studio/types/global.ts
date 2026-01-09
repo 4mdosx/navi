@@ -1,1 +1,0 @@
-export type { KvTable as KV } from '@prisma/client'

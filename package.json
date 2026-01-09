@@ -1,1 +1,5 @@
-{}
+{
+  "scripts": {
+    "studio": "cd studio && npm run dev"
+  }
+}
