@@ -1,55 +1,12 @@
-import Link from 'next/link'
-import Icon from '@/app/components/icon'
-import '../style/home.css'
-
-function Header() {
-  return (
-    <header className="md:container mx-auto">
-      <nav>
-        <Link href="/">./index.html</Link>
-        <Link href="/tools">Tools</Link>
-        {/* <Link href="/blog">Blog</Link> */}
-      </nav>
-    </header>
-  )
-}
-
-function Profile() {
-  return (
-    <div className="profile flex">
-      <Icon icon="mdi:code" />
-      <h1>4mdosx@Mokuseif.studio - A Web Development/Designer</h1>
-    </div>
-  )
-}
-
-function XenonButton() {
-  return <div className="xenon button">😈</div>
-}
-
-function HaloButton() {
-  return (
-    <div className="halo button">
-      <div className="halo-inner">🦄</div>
-    </div>
-  )
-}
-
-function InlineShadowButton() {
-  return <div className="inline-shadow button">😊</div>
-}
+import { Navbar } from './components/navbar'
+import { TasksView } from '@/app/tasks/components/tasks-view'
 
 export default function Home() {
   return (
-    <div className="home-page">
-      <Header />
-      <main className="flex min-h-screen flex-col items-center justify-start p-24">
-        <Profile />
-        <section id="breakout" className="mt-12">
-          <XenonButton />
-          <HaloButton />
-          <InlineShadowButton />
-        </section>
+    <div className="min-h-screen flex flex-col">
+      <Navbar />
+      <main className="flex-1">
+        <TasksView />
       </main>
     </div>
   )
