@@ -7,4 +7,3 @@ export type SessionPayload = {
 export const LoginFormSchema = z.object({
   password: z.string().trim(),
 })
-

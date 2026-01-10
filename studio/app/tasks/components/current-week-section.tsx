@@ -14,7 +14,7 @@ import {
   getWeekStartDate,
   getTaskStartWeek,
   formatWeekLabel
-} from '@/modules/tasks/utils'
+} from '@/backstage/tasks/utils'
 
 interface CurrentWeekSectionProps {
   tasks: Task[]

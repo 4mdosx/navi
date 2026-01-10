@@ -26,6 +26,8 @@
     "howler": "^2.2.4",
     "html2canvas": "^1.4.1",
     "jose": "^5.9.6",
+    "kysely": "^0.28.9",
+    "kysely-libsql": "^0.7.1",
     "lucide-react": "^0.542.0",
     "next": "^16.0.6",
     "react": "^19.2.0",

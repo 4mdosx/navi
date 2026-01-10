@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { TasksView } from './components/tasks-view'
 import { ProgressFootprint } from './components/progress-footprint'
-import { mockTasks, mockNotes } from '@/modules/tasks/mock-data'
+import { mockTasks, mockNotes } from '@/backstage/tasks/mock-data'
 import type { Task, TaskNote } from '@/types/tasks'
 
 export default function TasksPage() {

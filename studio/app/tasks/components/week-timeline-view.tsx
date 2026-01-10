@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { Task } from '@/types/tasks'
-import { getTaskStartWeek } from '@/modules/tasks/utils'
+import { getTaskStartWeek } from '@/backstage/tasks/utils'
 
 interface WeekTimelineViewProps {
   tasks: Task[]

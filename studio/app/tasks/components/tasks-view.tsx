@@ -7,8 +7,8 @@ import { CurrentWeekSection } from './current-week-section'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import type { Task, TaskNote } from '@/types/tasks'
-import { mockTasks, mockNotes } from '@/modules/tasks/mock-data'
-import { getCurrentWeekNumber, getTaskStartWeek, getWeekStartDate, formatWeekLabel } from '@/modules/tasks/utils'
+import { mockTasks, mockNotes } from '@/backstage/tasks/mock-data'
+import { getCurrentWeekNumber, getTaskStartWeek, getWeekStartDate, formatWeekLabel } from '@/backstage/tasks/utils'
 
 interface TasksViewProps {
   tasks?: Task[]

@@ -1,10 +1,10 @@
 'use server'
 import 'server-only'
 
-import { deleteSession, createSession } from '@/modules/auth/service'
+import { deleteSession, createSession } from '@/backstage/service/auth.service'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
-import { verifyOTP } from '@/modules/2fa/service'
+import { verifyOTP } from '@/backstage/service/2fa.service'
 
 const LoginSchema = z.object({
   code: z.string().length(6),
