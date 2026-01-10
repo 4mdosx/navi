@@ -10,9 +10,42 @@ import type { Task, TaskNote } from '@/types/tasks'
 import { mockTasks, mockNotes } from '@/modules/tasks/mock-data'
 import { getCurrentWeekNumber, getTaskStartWeek, getWeekStartDate, formatWeekLabel } from '@/modules/tasks/utils'
 
-export function TasksView() {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks)
-  const [notesMap, setNotesMap] = useState<Record<string, TaskNote[]>>(mockNotes)
+interface TasksViewProps {
+  tasks?: Task[]
+  notesMap?: Record<string, TaskNote[]>
+  onTasksChange?: (tasks: Task[]) => void
+  onNotesMapChange?: (notesMap: Record<string, TaskNote[]>) => void
+}
+
+export function TasksView({
+  tasks: externalTasks,
+  notesMap: externalNotesMap,
+  onTasksChange,
+  onNotesMapChange
+}: TasksViewProps = {} as TasksViewProps) {
+  const [internalTasks, setInternalTasks] = useState<Task[]>(mockTasks)
+  const [internalNotesMap, setInternalNotesMap] = useState<Record<string, TaskNote[]>>(mockNotes)
+
+  const tasks = externalTasks ?? internalTasks
+  const notesMap = externalNotesMap ?? internalNotesMap
+
+  const setTasks = (newTasks: Task[] | ((prev: Task[]) => Task[])) => {
+    const updated = typeof newTasks === 'function' ? newTasks(tasks) : newTasks
+    if (onTasksChange) {
+      onTasksChange(updated)
+    } else {
+      setInternalTasks(updated)
+    }
+  }
+
+  const setNotesMap = (newNotesMap: Record<string, TaskNote[]> | ((prev: Record<string, TaskNote[]>) => Record<string, TaskNote[]>)) => {
+    const updated = typeof newNotesMap === 'function' ? newNotesMap(notesMap) : newNotesMap
+    if (onNotesMapChange) {
+      onNotesMapChange(updated)
+    } else {
+      setInternalNotesMap(updated)
+    }
+  }
 
   // 计算当前周信息用于标题显示
   const currentWeekInfo = useMemo(() => {
@@ -96,7 +129,7 @@ export function TasksView() {
   }, [])
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-7xl">
+    <div>
       {/* 周视图时间线 */}
       <Card className="mb-8">
         <CardHeader className="pb-3">
