@@ -25,7 +25,7 @@ interface WeekData {
 
 export function WeekTimelineView({
   tasks,
-  visibleWeeks = 20,
+  visibleWeeks = 10,
   onTaskClick
 }: WeekTimelineViewProps) {
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null)
@@ -34,6 +34,7 @@ export function WeekTimelineView({
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const taskTimelineRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const isScrollingRef = useRef(false)
+  const hasInitializedRef = useRef(false) // 标记是否已初始化滚动
   const now = new Date()
   const currentWeekStart = startOfWeek(now, { weekStartsOn: 1 })
 
@@ -112,26 +113,40 @@ export function WeekTimelineView({
     }
   }
 
-  // 初始化时滚动到当前周
+  // 初始化时滚动到当前周-2周
   useEffect(() => {
+    if (hasInitializedRef.current) return // 只执行一次
+
     if (scrollContainerRef.current && weeks.length > 0) {
       const currentWeekIndex = weeks.findIndex(w => w.isCurrentWeek)
       if (currentWeekIndex >= 0) {
-        const weekElement = scrollContainerRef.current.children[currentWeekIndex] as HTMLElement
-        if (weekElement) {
-          const scrollPosition = weekElement.offsetLeft - scrollContainerRef.current.clientWidth / 2 + weekElement.clientWidth / 2
-          isScrollingRef.current = true
-          scrollContainerRef.current.scrollTo({
-            left: scrollPosition,
-            behavior: 'smooth'
-          })
-          setTimeout(() => {
-            isScrollingRef.current = false
-          }, 500)
-        }
+        // 计算目标周索引（当前周-2周）
+        const targetWeekIndex = Math.max(0, currentWeekIndex + 4)
+        // 使用 requestAnimationFrame 确保 DOM 已渲染
+        requestAnimationFrame(() => {
+          const weekElement = scrollContainerRef.current?.children[targetWeekIndex] as HTMLElement
+          if (weekElement && scrollContainerRef.current) {
+            const scrollPosition = weekElement.offsetLeft - scrollContainerRef.current.clientWidth / 2 + weekElement.clientWidth / 2
+            isScrollingRef.current = true
+            scrollContainerRef.current.scrollTo({
+              left: scrollPosition,
+              behavior: 'smooth'
+            })
+            // 同步所有任务时间线
+            setTimeout(() => {
+              taskTimelineRefs.current.forEach((ref) => {
+                if (ref && scrollContainerRef.current) {
+                  ref.scrollLeft = scrollContainerRef.current.scrollLeft
+                }
+              })
+              isScrollingRef.current = false
+              hasInitializedRef.current = true // 标记已初始化
+            }, 500)
+          }
+        })
       }
     }
-  }, []) // 只在初始化时执行
+  }, [weeks]) // 当周数据准备好时执行
 
   // 重置到当前周
   const handleResetToCurrentWeek = () => {
