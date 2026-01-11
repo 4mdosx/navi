@@ -4,11 +4,11 @@ import { useState, useCallback, useMemo } from 'react'
 import { v4 as uuid } from 'uuid'
 import { WeekTimelineView } from './week-timeline-view'
 import { CurrentWeekSection } from './current-week-section'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { cn } from '@/lib/utils'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { useTasks } from '../hooks/use-tasks'
 import type { Task, TaskNote } from '@/types/tasks'
-import { mockTasks, mockNotes } from '@/backstage/tasks/mock-data'
-import { getCurrentWeekNumber, getTaskStartWeek, getWeekStartDate, formatWeekLabel } from '@/backstage/tasks/utils'
+import { getCurrentWeekNumber, getTaskStartWeek, getWeekStartDate } from '@/backstage/tasks/utils'
 
 interface TasksViewProps {
   tasks?: Task[]
@@ -23,8 +23,9 @@ export function TasksView({
   onTasksChange,
   onNotesMapChange
 }: TasksViewProps = {} as TasksViewProps) {
-  const [internalTasks, setInternalTasks] = useState<Task[]>(mockTasks)
-  const [internalNotesMap, setInternalNotesMap] = useState<Record<string, TaskNote[]>>(mockNotes)
+  const [internalTasks, setInternalTasks] = useState<Task[]>([])
+  const [internalNotesMap, setInternalNotesMap] = useState<Record<string, TaskNote[]>>({})
+  const { createTask } = useTasks()
 
   const tasks = externalTasks ?? internalTasks
   const notesMap = externalNotesMap ?? internalNotesMap
@@ -46,48 +47,6 @@ export function TasksView({
       setInternalNotesMap(updated)
     }
   }
-
-  // 计算当前周信息用于标题显示
-  const currentWeekInfo = useMemo(() => {
-    if (tasks.length === 0) return null
-
-    const earliestTask = tasks.reduce((earliest, task) => {
-      const taskStart = getTaskStartWeek(task)
-      const earliestStart = getTaskStartWeek(earliest)
-      return taskStart < earliestStart ? task : earliest
-    }, tasks[0])
-
-    const currentWeekNumber = getCurrentWeekNumber(earliestTask)
-    const taskStartWeek = getTaskStartWeek(earliestTask)
-    const weekStartDate = getWeekStartDate(currentWeekNumber, taskStartWeek)
-
-    // 计算已过的天数（周一是第1天，周日是第7天）
-    const now = new Date()
-    // 将日期重置为当天的 00:00:00，只比较日期部分
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const weekStart = new Date(weekStartDate.getFullYear(), weekStartDate.getMonth(), weekStartDate.getDate())
-    const weekEndDate = new Date(weekStart)
-    weekEndDate.setDate(weekEndDate.getDate() + 6) // 周日
-
-    let passedDays = 0
-    if (today >= weekStart) {
-      if (today > weekEndDate) {
-        // 如果已经过了这周，全部显示为已过
-        passedDays = 7
-      } else {
-        // 计算从周一到今天过了多少天（包括今天）
-        const diffTime = today.getTime() - weekStart.getTime()
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1 // +1 因为包括今天
-        passedDays = Math.min(Math.max(diffDays, 0), 7)
-      }
-    }
-
-    return {
-      currentWeekNumber,
-      weekStartDate,
-      passedDays,
-    }
-  }, [tasks])
 
   const handleAddNote = useCallback((taskId: string, content: string) => {
     const task = tasks.find(t => t.id === taskId)
@@ -128,6 +87,20 @@ export function TasksView({
     console.log('Task clicked:', task.id)
   }, [])
 
+  const handleCreateTask = useCallback(async () => {
+    const title = prompt('请输入任务标题:')
+    if (!title) {
+      return
+    }
+
+    try {
+      await createTask(title)
+    } catch (error) {
+      console.error('Error creating task:', error)
+      alert(error instanceof Error ? error.message : '创建任务失败，请重试')
+    }
+  }, [createTask])
+
   return (
     <div>
       {/* 周视图时间线 */}
@@ -141,6 +114,13 @@ export function TasksView({
               <p className="text-sm text-muted-foreground/70">
                 创建一个开始追踪你的长期任务吧
               </p>
+              <Button
+                variant="outline"
+                onClick={handleCreateTask}
+                className="mt-4"
+              >
+                创建任务
+              </Button>
             </div>
           ) : (
             <WeekTimelineView

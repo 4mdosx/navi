@@ -12,4 +12,9 @@ export interface Database {
   //   title: string
   //   ...
   // }
+  settings: {
+    key: string
+    value: string
+    updatedAt: Date
+  }
 }

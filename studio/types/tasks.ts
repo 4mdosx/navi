@@ -1,22 +1,17 @@
 export type TaskStatus = 'in_progress' | 'waiting' | 'completed' | 'paused'
 
-export type TaskNoteType = 'text' | 'image' | 'link' | 'code'
-
 export interface Task {
   id: string
   title: string
   description?: string
   status: TaskStatus
   progress: number // 0-100
-  filePath: string
-  lastActiveAt: string // ISO 8601 格式
   createdAt: string // ISO 8601 格式
   updatedAt: string // ISO 8601 格式
 }
 
 export interface TaskNote {
   id: string
-  type: TaskNoteType
   content: string
   timestamp: string // ISO 8601 格式
   metadata?: {
