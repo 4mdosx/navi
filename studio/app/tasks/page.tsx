@@ -6,12 +6,11 @@ import { SettingsView } from './components/settings-view'
 import { ProgressFootprint } from './components/progress-footprint'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useTasks } from './hooks/use-tasks'
-import type { Task, TaskNote } from '@/types/tasks'
+import type { Task } from '@/types/tasks'
 
 export default function TasksPage() {
-  const { tasks: tasksFromDB, isLoading, isError, mutate } = useTasks()
+  const { tasks: tasksFromDB, isError } = useTasks()
   const [tasks, setTasks] = useState<Task[]>([])
-  const [notesMap, setNotesMap] = useState<Record<string, TaskNote[]>>({})
 
   // 当从 API 获取到数据时更新 tasks
   useEffect(() => {
@@ -48,9 +47,7 @@ export default function TasksPage() {
             <TabsContent value="tasks" className="mt-0">
               <TasksView
                 tasks={tasks}
-                notesMap={notesMap}
                 onTasksChange={setTasks}
-                onNotesMapChange={setNotesMap}
               />
             </TabsContent>
             <TabsContent value="settings" className="mt-0">

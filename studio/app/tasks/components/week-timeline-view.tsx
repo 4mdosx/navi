@@ -12,6 +12,7 @@ interface WeekTimelineViewProps {
   tasks: Task[]
   visibleWeeks?: number // 可见的周数，默认20周
   onTaskClick?: (task: Task) => void
+  activeTaskId?: string | null // 激活的任务 ID
 }
 
 interface WeekData {
@@ -26,7 +27,8 @@ interface WeekData {
 export function WeekTimelineView({
   tasks,
   visibleWeeks = 10,
-  onTaskClick
+  onTaskClick,
+  activeTaskId
 }: WeekTimelineViewProps) {
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null)
   const [weeksBefore, setWeeksBefore] = useState(visibleWeeks) // 当前周之前的周数
@@ -177,19 +179,14 @@ export function WeekTimelineView({
     }, 500)
   }
 
-  // 计算任务在时间线上的位置（基于实际日期）
+  // 计算任务在时间线上的位置（基于 todo 个数）
   const getTaskWeekRange = (task: Task) => {
     const taskStartWeek = getTaskStartWeek(task)
-    const taskEndDate = new Date() // 任务结束日期是现在
+    const todoCount = task.todo?.length || 0
 
     // 找到任务开始的周索引
     const startWeekIndex = weeks.findIndex(w => {
       return taskStartWeek >= w.weekStartDate && taskStartWeek <= w.weekEndDate
-    })
-
-    // 找到任务结束的周索引
-    const endWeekIndex = weeks.findIndex(w => {
-      return taskEndDate >= w.weekStartDate && taskEndDate <= w.weekEndDate
     })
 
     // 如果任务开始周不在当前显示范围内，返回空范围
@@ -201,48 +198,16 @@ export function WeekTimelineView({
       }
     }
 
+    // 基于 todo 个数计算结束周索引
+    const endWeekIndex = startWeekIndex + todoCount - 1
+
     return {
       startIndex: startWeekIndex,
-      endIndex: endWeekIndex >= 0 ? endWeekIndex : weeks.length - 1,
-      width: endWeekIndex >= 0
-        ? endWeekIndex - startWeekIndex + 1
-        : weeks.length - startWeekIndex,
+      endIndex: Math.min(endWeekIndex, weeks.length - 1),
+      width: todoCount,
     }
   }
 
-  const getStatusConfig = (status: Task['status']) => {
-    const configs = {
-      in_progress: {
-        label: '进行中',
-        bg: 'bg-blue-500/10',
-        text: 'text-blue-600 dark:text-blue-400',
-        border: 'border-blue-500/20',
-        dot: 'bg-blue-500',
-      },
-      waiting: {
-        label: '等待',
-        bg: 'bg-gray-500/10',
-        text: 'text-gray-600 dark:text-gray-400',
-        border: 'border-gray-500/20',
-        dot: 'bg-gray-500',
-      },
-      paused: {
-        label: '暂停',
-        bg: 'bg-yellow-500/10',
-        text: 'text-yellow-600 dark:text-yellow-400',
-        border: 'border-yellow-500/20',
-        dot: 'bg-yellow-500',
-      },
-      completed: {
-        label: '完成',
-        bg: 'bg-green-500/10',
-        text: 'text-green-600 dark:text-green-400',
-        border: 'border-green-500/20',
-        dot: 'bg-green-500',
-      },
-    }
-    return configs[status]
-  }
 
   return (
     <div className="w-full">
@@ -271,7 +236,6 @@ export function WeekTimelineView({
             style={{
               scrollbarWidth: 'none',
               msOverflowStyle: 'none',
-              touchAction: 'pan-x' // 防止浏览器手势导航，只允许横向滚动
             }}
             onScroll={handleScroll}
           >
@@ -317,12 +281,12 @@ export function WeekTimelineView({
       </div>
 
       {/* 任务进度条 - 改进样式和交互 */}
-      <div className="space-y-4" style={{ touchAction: 'pan-x' }}>
+      <div className="space-y-4">
         {tasks.map((task) => {
           const weekRange = getTaskWeekRange(task)
           const progressPercent = task.progress
-          const statusConfig = getStatusConfig(task.status)
           const isHovered = hoveredTaskId === task.id
+          const isActive = activeTaskId === task.id
 
           return (
             <div
@@ -331,12 +295,13 @@ export function WeekTimelineView({
                 'group relative flex items-center',
                 'rounded-lg border transition-all duration-200',
                 'hover:shadow-md hover:shadow-primary/5',
-                isHovered
+                isActive
+                  ? 'border-primary bg-primary/10 shadow-lg shadow-primary/20'
+                  : isHovered
                   ? 'border-primary/30 bg-primary/5 shadow-md'
                   : 'border-border/50 bg-card hover:border-border',
                 'cursor-pointer'
               )}
-              style={{ touchAction: 'pan-x' }} // 防止任务行间隙滚动时触发浏览器导航
               onClick={() => onTaskClick?.(task)}
               onMouseEnter={() => setHoveredTaskId(task.id)}
               onMouseLeave={() => setHoveredTaskId(null)}
@@ -347,10 +312,6 @@ export function WeekTimelineView({
                   <h3 className="font-semibold text-sm leading-tight line-clamp-2 flex-1">
                     {task.title}
                   </h3>
-                  <div className={cn(
-                    'w-2 h-2 rounded-full flex-shrink-0 mt-1',
-                    statusConfig.dot
-                  )} />
                 </div>
                 <div className="flex items-center gap-3 mt-3">
                   {/* 进度条 */}
@@ -359,25 +320,10 @@ export function WeekTimelineView({
                       <span className="text-xs font-medium text-foreground">
                         {progressPercent}%
                       </span>
-                      <span className={cn(
-                        'text-xs px-2 py-0.5 rounded-full font-medium',
-                        statusConfig.bg,
-                        statusConfig.text,
-                        statusConfig.border,
-                        'border'
-                      )}>
-                        {statusConfig.label}
-                      </span>
                     </div>
                     <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                       <div
-                        className={cn(
-                          'h-full transition-all duration-500 rounded-full',
-                          task.status === 'completed' && 'bg-green-500',
-                          task.status === 'in_progress' && 'bg-blue-500',
-                          task.status === 'paused' && 'bg-yellow-500',
-                          task.status === 'waiting' && 'bg-gray-400'
-                        )}
+                        className="h-full transition-all duration-500 rounded-full bg-blue-500"
                         style={{ width: `${progressPercent}%` }}
                       />
                     </div>
@@ -398,7 +344,6 @@ export function WeekTimelineView({
                 style={{
                   scrollbarWidth: 'none',
                   msOverflowStyle: 'none',
-                  touchAction: 'pan-x' // 防止浏览器手势导航，只允许横向滚动
                 }}
                 onScroll={(e) => {
                   // 同步到标题行
@@ -444,11 +389,7 @@ export function WeekTimelineView({
                             'flex items-center justify-center',
                             isCompleted
                               ? cn(
-                                  'bg-gradient-to-b',
-                                  task.status === 'completed' && 'from-green-500 to-green-600',
-                                  task.status === 'in_progress' && 'from-blue-500 to-blue-600',
-                                  task.status === 'paused' && 'from-yellow-500 to-yellow-600',
-                                  task.status === 'waiting' && 'from-gray-400 to-gray-500',
+                                  'bg-gradient-to-b from-blue-500 to-blue-600',
                                   'shadow-sm shadow-primary/20',
                                   isHovered && 'scale-105 shadow-md'
                                 )

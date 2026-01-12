@@ -1,34 +1,27 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
-import { v4 as uuid } from 'uuid'
+import { useState, useCallback } from 'react'
 import { WeekTimelineView } from './week-timeline-view'
 import { CurrentWeekSection } from './current-week-section'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useTasks } from '../hooks/use-tasks'
-import type { Task, TaskNote } from '@/types/tasks'
-import { getCurrentWeekNumber, getTaskStartWeek, getWeekStartDate } from '@/backstage/tasks/utils'
+import type { Task } from '@/types/tasks'
 
 interface TasksViewProps {
   tasks?: Task[]
-  notesMap?: Record<string, TaskNote[]>
   onTasksChange?: (tasks: Task[]) => void
-  onNotesMapChange?: (notesMap: Record<string, TaskNote[]>) => void
 }
 
 export function TasksView({
   tasks: externalTasks,
-  notesMap: externalNotesMap,
   onTasksChange,
-  onNotesMapChange
 }: TasksViewProps = {} as TasksViewProps) {
   const [internalTasks, setInternalTasks] = useState<Task[]>([])
-  const [internalNotesMap, setInternalNotesMap] = useState<Record<string, TaskNote[]>>({})
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const { createTask } = useTasks()
 
   const tasks = externalTasks ?? internalTasks
-  const notesMap = externalNotesMap ?? internalNotesMap
 
   const setTasks = (newTasks: Task[] | ((prev: Task[]) => Task[])) => {
     const updated = typeof newTasks === 'function' ? newTasks(tasks) : newTasks
@@ -39,52 +32,10 @@ export function TasksView({
     }
   }
 
-  const setNotesMap = (newNotesMap: Record<string, TaskNote[]> | ((prev: Record<string, TaskNote[]>) => Record<string, TaskNote[]>)) => {
-    const updated = typeof newNotesMap === 'function' ? newNotesMap(notesMap) : newNotesMap
-    if (onNotesMapChange) {
-      onNotesMapChange(updated)
-    } else {
-      setInternalNotesMap(updated)
-    }
-  }
-
-  const handleAddNote = useCallback((taskId: string, content: string) => {
-    const task = tasks.find(t => t.id === taskId)
-    if (!task) return
-
-    const now = new Date()
-    const taskStartWeek = getTaskStartWeek(task)
-    const currentWeekNumber = getCurrentWeekNumber(task)
-    const weekStartDate = new Date(taskStartWeek)
-    weekStartDate.setDate(weekStartDate.getDate() + (currentWeekNumber - 1) * 7)
-
-    const newNote: TaskNote = {
-      id: uuid(),
-      type: 'text',
-      content,
-      timestamp: now.toISOString(),
-      metadata: {
-        weekNumber: currentWeekNumber,
-        weekStartDate: weekStartDate.toISOString(),
-      },
-    }
-
-    setNotesMap(prev => ({
-      ...prev,
-      [taskId]: [...(prev[taskId] || []), newNote],
-    }))
-
-    // 更新任务的 lastActiveAt
-    setTasks(prev => prev.map(t =>
-      t.id === taskId
-        ? { ...t, lastActiveAt: now.toISOString(), updatedAt: now.toISOString() }
-        : t
-    ))
-  }, [tasks])
 
   const handleTaskClick = useCallback((task: Task) => {
-    // 可以在这里实现任务详情页面的跳转
-    console.log('Task clicked:', task.id)
+    // 切换激活状态：如果点击的是已激活的任务，则取消激活；否则激活该任务
+    setActiveTaskId(prev => prev === task.id ? null : task.id)
   }, [])
 
   const handleCreateTask = useCallback(async () => {
@@ -127,6 +78,7 @@ export function TasksView({
               tasks={tasks}
               visibleWeeks={20}
               onTaskClick={handleTaskClick}
+              activeTaskId={activeTaskId}
             />
           )}
         </CardContent>
@@ -135,8 +87,7 @@ export function TasksView({
       {/* 本周进展区域 */}
       <CurrentWeekSection
         tasks={tasks}
-        notesMap={notesMap}
-        onAddNote={handleAddNote}
+        activeTaskId={activeTaskId}
       />
     </div>
   )
