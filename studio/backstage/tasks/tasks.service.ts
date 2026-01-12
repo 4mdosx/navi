@@ -85,11 +85,25 @@ function parseMarkdownFile(
         continue
       }
 
+      // 尝试解析 comment 为 JSON 数组，如果不是则保持原样
+      let parsedComment: any = comment
+      if (comment) {
+        try {
+          const parsed = JSON.parse(comment)
+          if (Array.isArray(parsed)) {
+            parsedComment = parsed
+          }
+        } catch {
+          // 如果不是有效的 JSON，保持原样
+          parsedComment = comment
+        }
+      }
+
       todo.push({
         title,
         content,
         completed: completed === 'true',
-        comment
+        comment: parsedComment
       })
     }
   }
@@ -316,6 +330,366 @@ export async function updateTodoCompleted(
       // 更新 completed 字段
       const newCompleted = completed ? 'true' : 'false'
       const newRow = `| ${title} | ${content} | ${newCompleted} | ${comment} |`
+      rows[dataRowIndex] = newRow
+    }
+  } else {
+    throw new Error(`Todo index out of range: ${todoIndex}`)
+  }
+
+  // 重新构建 body（保留表头和分隔线，更新数据行）
+  const tableHeader = rows[0]
+  const tableSeparator = rows[1]
+  const dataRows = rows.slice(2)
+
+  // 找到表格的开始位置（匹配表头）
+  const tableStartRegex = /^\| title \| content \| completed \| comment \|/m
+  const tableMatch = body.match(tableStartRegex)
+
+  if (tableMatch) {
+    const tableStartIndex = tableMatch.index!
+    // 找到表格结束位置（下一个非表格行或文件结束）
+    const afterTable = body.substring(tableStartIndex)
+    const tableEndMatch = afterTable.match(/\n(?!\|)/)
+    const tableEndIndex = tableEndMatch
+      ? tableStartIndex + tableEndMatch.index!
+      : body.length
+
+    // 替换表格部分
+    const beforeTable = body.substring(0, tableStartIndex)
+    const afterTableContent = body.substring(tableEndIndex)
+    body = beforeTable + `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}` + (afterTableContent.startsWith('\n') ? '' : '\n') + afterTableContent
+  } else {
+    // 如果没有找到表格，直接替换整个 body（这种情况不应该发生）
+    body = `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}`
+  }
+
+  // 更新 frontmatter 中的 updatedAt
+  frontmatter.updatedAt = new Date().toISOString()
+
+  // 重新构建 frontmatter
+  const frontmatterYaml = Object.entries(frontmatter)
+    .map(([key, value]) => `${key}: ${typeof value === 'string' ? `"${value}"` : value}`)
+    .join('\n')
+
+  // 重新构建完整内容
+  const newContent = `---
+${frontmatterYaml}
+---
+
+${body}`
+
+  // 写回文件
+  await fs.writeFile(filePath, newContent, 'utf-8')
+
+  // 返回更新后的任务
+  return parseMarkdownFile(newContent, filename)!
+}
+
+/**
+ * 添加记录到任务的 todo 项的 comment
+ * @param taskId 任务 ID
+ * @param todoIndex todo 项的索引（从 0 开始）
+ * @param recordContent 记录内容
+ * @returns 更新后的任务
+ * @throws 如果任务路径未配置或不存在，或更新文件时出错
+ */
+export async function addTodoCommentRecord(
+  taskId: string,
+  todoIndex: number,
+  recordContent: string
+): Promise<Task> {
+  // 获取任务路径
+  const taskPath = await getSetting('task_path')
+  if (!taskPath) {
+    throw new Error('Task path not configured. Please set task_path first.')
+  }
+
+  // 检查路径是否存在
+  try {
+    await fs.access(taskPath)
+  } catch {
+    throw new Error(`Task path does not exist: ${taskPath}`)
+  }
+
+  // 查找对应的文件
+  const files = await fs.readdir(taskPath)
+  const mdFiles = files.filter((file) => file.endsWith('.md'))
+
+  let filePath: string | null = null
+  let filename: string | null = null
+
+  // 通过文件名或文件内容中的 taskId 查找文件
+  for (const file of mdFiles) {
+    const path = join(taskPath, file)
+    const content = await fs.readFile(path, 'utf-8')
+    const parsed = parseMarkdownFile(content, file)
+    if (parsed && parsed.id === taskId) {
+      filePath = path
+      filename = file
+      break
+    }
+  }
+
+  if (!filePath || !filename) {
+    throw new Error(`Task not found: ${taskId}`)
+  }
+
+  // 读取文件内容
+  const content = await fs.readFile(filePath, 'utf-8')
+
+  // 分离 frontmatter 和 body
+  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
+  const match = content.match(frontmatterRegex)
+
+  if (!match) {
+    throw new Error(`Invalid markdown file format: ${filename}`)
+  }
+
+  const frontmatterText = match[1]
+  let body = match[2]
+
+  // 解析 frontmatter
+  const frontmatter: Record<string, any> = {}
+  frontmatterText.split('\n').forEach((line) => {
+    const colonIndex = line.indexOf(':')
+    if (colonIndex > 0) {
+      const key = line.substring(0, colonIndex).trim()
+      const value = line
+        .substring(colonIndex + 1)
+        .trim()
+        .replace(/^["']|["']$/g, '')
+      frontmatter[key] = value
+    }
+  })
+
+  // 解析表格
+  const tableRowRegex = /^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/gm
+  const rows: string[] = []
+  let rowMatch
+  while ((rowMatch = tableRowRegex.exec(body)) !== null) {
+    rows.push(rowMatch[0])
+  }
+
+  // 更新指定索引的 todo 行的 comment 字段
+  const dataRowIndex = todoIndex + 2 // +2 因为前两行是表头和分隔线
+  if (dataRowIndex < rows.length) {
+    const row = rows[dataRowIndex]
+    const rowMatch = row.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/)
+    if (rowMatch) {
+      const title = rowMatch[1].trim()
+      const content = rowMatch[2].trim()
+      const completed = rowMatch[3].trim()
+      const oldComment = rowMatch[4].trim()
+
+      // 解析现有的 comment（可能是 JSON 数组或字符串）
+      let commentArray: Array<{ content: string; updateAt: string }> = []
+      if (oldComment) {
+        try {
+          const parsed = JSON.parse(oldComment)
+          if (Array.isArray(parsed)) {
+            commentArray = parsed
+          } else {
+            // 如果是旧格式的字符串，转换为数组格式
+            commentArray = [{ content: oldComment, updateAt: new Date().toISOString() }]
+          }
+        } catch {
+          // 如果不是 JSON，作为旧格式处理
+          commentArray = [{ content: oldComment, updateAt: new Date().toISOString() }]
+        }
+      }
+
+      // 添加新记录
+      commentArray.push({
+        content: recordContent,
+        updateAt: new Date().toISOString()
+      })
+
+      // 将数组序列化为 JSON 字符串
+      const newComment = JSON.stringify(commentArray)
+
+      // 更新行
+      const newRow = `| ${title} | ${content} | ${completed} | ${newComment} |`
+      rows[dataRowIndex] = newRow
+    }
+  } else {
+    throw new Error(`Todo index out of range: ${todoIndex}`)
+  }
+
+  // 重新构建 body（保留表头和分隔线，更新数据行）
+  const tableHeader = rows[0]
+  const tableSeparator = rows[1]
+  const dataRows = rows.slice(2)
+
+  // 找到表格的开始位置（匹配表头）
+  const tableStartRegex = /^\| title \| content \| completed \| comment \|/m
+  const tableMatch = body.match(tableStartRegex)
+
+  if (tableMatch) {
+    const tableStartIndex = tableMatch.index!
+    // 找到表格结束位置（下一个非表格行或文件结束）
+    const afterTable = body.substring(tableStartIndex)
+    const tableEndMatch = afterTable.match(/\n(?!\|)/)
+    const tableEndIndex = tableEndMatch
+      ? tableStartIndex + tableEndMatch.index!
+      : body.length
+
+    // 替换表格部分
+    const beforeTable = body.substring(0, tableStartIndex)
+    const afterTableContent = body.substring(tableEndIndex)
+    body = beforeTable + `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}` + (afterTableContent.startsWith('\n') ? '' : '\n') + afterTableContent
+  } else {
+    // 如果没有找到表格，直接替换整个 body（这种情况不应该发生）
+    body = `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}`
+  }
+
+  // 更新 frontmatter 中的 updatedAt
+  frontmatter.updatedAt = new Date().toISOString()
+
+  // 重新构建 frontmatter
+  const frontmatterYaml = Object.entries(frontmatter)
+    .map(([key, value]) => `${key}: ${typeof value === 'string' ? `"${value}"` : value}`)
+    .join('\n')
+
+  // 重新构建完整内容
+  const newContent = `---
+${frontmatterYaml}
+---
+
+${body}`
+
+  // 写回文件
+  await fs.writeFile(filePath, newContent, 'utf-8')
+
+  // 返回更新后的任务
+  return parseMarkdownFile(newContent, filename)!
+}
+
+/**
+ * 删除任务的 todo 项的 comment 中的记录
+ * @param taskId 任务 ID
+ * @param todoIndex todo 项的索引（从 0 开始）
+ * @param recordIndex 记录的索引（从 0 开始）
+ * @returns 更新后的任务
+ * @throws 如果任务路径未配置或不存在，或更新文件时出错
+ */
+export async function deleteTodoCommentRecord(
+  taskId: string,
+  todoIndex: number,
+  recordIndex: number
+): Promise<Task> {
+  // 获取任务路径
+  const taskPath = await getSetting('task_path')
+  if (!taskPath) {
+    throw new Error('Task path not configured. Please set task_path first.')
+  }
+
+  // 检查路径是否存在
+  try {
+    await fs.access(taskPath)
+  } catch {
+    throw new Error(`Task path does not exist: ${taskPath}`)
+  }
+
+  // 查找对应的文件
+  const files = await fs.readdir(taskPath)
+  const mdFiles = files.filter((file) => file.endsWith('.md'))
+
+  let filePath: string | null = null
+  let filename: string | null = null
+
+  // 通过文件名或文件内容中的 taskId 查找文件
+  for (const file of mdFiles) {
+    const path = join(taskPath, file)
+    const content = await fs.readFile(path, 'utf-8')
+    const parsed = parseMarkdownFile(content, file)
+    if (parsed && parsed.id === taskId) {
+      filePath = path
+      filename = file
+      break
+    }
+  }
+
+  if (!filePath || !filename) {
+    throw new Error(`Task not found: ${taskId}`)
+  }
+
+  // 读取文件内容
+  const content = await fs.readFile(filePath, 'utf-8')
+
+  // 分离 frontmatter 和 body
+  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
+  const match = content.match(frontmatterRegex)
+
+  if (!match) {
+    throw new Error(`Invalid markdown file format: ${filename}`)
+  }
+
+  const frontmatterText = match[1]
+  let body = match[2]
+
+  // 解析 frontmatter
+  const frontmatter: Record<string, any> = {}
+  frontmatterText.split('\n').forEach((line) => {
+    const colonIndex = line.indexOf(':')
+    if (colonIndex > 0) {
+      const key = line.substring(0, colonIndex).trim()
+      const value = line
+        .substring(colonIndex + 1)
+        .trim()
+        .replace(/^["']|["']$/g, '')
+      frontmatter[key] = value
+    }
+  })
+
+  // 解析表格
+  const tableRowRegex = /^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/gm
+  const rows: string[] = []
+  let rowMatch
+  while ((rowMatch = tableRowRegex.exec(body)) !== null) {
+    rows.push(rowMatch[0])
+  }
+
+  // 更新指定索引的 todo 行的 comment 字段
+  const dataRowIndex = todoIndex + 2 // +2 因为前两行是表头和分隔线
+  if (dataRowIndex < rows.length) {
+    const row = rows[dataRowIndex]
+    const rowMatch = row.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/)
+    if (rowMatch) {
+      const title = rowMatch[1].trim()
+      const content = rowMatch[2].trim()
+      const completed = rowMatch[3].trim()
+      const oldComment = rowMatch[4].trim()
+
+      // 解析现有的 comment（可能是 JSON 数组或字符串）
+      let commentArray: Array<{ content: string; updateAt: string }> = []
+      if (oldComment) {
+        try {
+          const parsed = JSON.parse(oldComment)
+          if (Array.isArray(parsed)) {
+            commentArray = parsed
+          } else {
+            // 如果是旧格式的字符串，转换为数组格式
+            commentArray = [{ content: oldComment, updateAt: new Date().toISOString() }]
+          }
+        } catch {
+          // 如果不是 JSON，作为旧格式处理
+          commentArray = [{ content: oldComment, updateAt: new Date().toISOString() }]
+        }
+      }
+
+      // 检查记录索引是否有效
+      if (recordIndex < 0 || recordIndex >= commentArray.length) {
+        throw new Error(`Record index out of range: ${recordIndex}`)
+      }
+
+      // 删除指定索引的记录
+      commentArray.splice(recordIndex, 1)
+
+      // 将数组序列化为 JSON 字符串（如果数组为空，则使用空字符串）
+      const newComment = commentArray.length > 0 ? JSON.stringify(commentArray) : ''
+
+      // 更新行
+      const newRow = `| ${title} | ${content} | ${completed} | ${newComment} |`
       rows[dataRowIndex] = newRow
     }
   } else {

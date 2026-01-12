@@ -13,6 +13,7 @@ interface WeekTimelineViewProps {
   visibleWeeks?: number // 可见的周数，默认20周
   onTaskClick?: (task: Task) => void
   activeTaskId?: string | null // 激活的任务 ID
+  onWeekClick?: (taskId: string, weekIndex: number) => void // 点击周时的回调，weekIndex 是相对于任务开始周的周数（从1开始）
 }
 
 interface WeekData {
@@ -28,7 +29,8 @@ export function WeekTimelineView({
   tasks,
   visibleWeeks = 10,
   onTaskClick,
-  activeTaskId
+  activeTaskId,
+  onWeekClick
 }: WeekTimelineViewProps) {
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null)
   const [weeksBefore, setWeeksBefore] = useState(visibleWeeks) // 当前周之前的周数
@@ -302,7 +304,6 @@ export function WeekTimelineView({
                   : 'border-border/50 bg-card hover:border-border',
                 'cursor-pointer'
               )}
-              onClick={() => onTaskClick?.(task)}
               onMouseEnter={() => setHoveredTaskId(task.id)}
               onMouseLeave={() => setHoveredTaskId(null)}
             >
@@ -373,6 +374,9 @@ export function WeekTimelineView({
                   const isCompleted = expectedProgressAtWeek <= progressPercent
                   const isCurrentWeekInRange = week.isCurrentWeek && isInTaskRange
 
+                  // 计算这个周在任务中的周数（从1开始，相对于任务开始周）
+                  const taskWeekNumber = index - weekRange.startIndex + 1
+
                   return (
                     <div
                       key={`${week.year}-${week.weekNumber}-${index}`}
@@ -386,7 +390,8 @@ export function WeekTimelineView({
                         <div
                           className={cn(
                             'w-full h-8 rounded-md transition-all duration-300',
-                            'flex items-center justify-center',
+                            'flex items-center justify-center cursor-pointer',
+                            'hover:ring-2 hover:ring-primary/50 hover:ring-offset-1',
                             isCompleted
                               ? cn(
                                   'bg-gradient-to-b from-blue-500 to-blue-600',
@@ -396,6 +401,10 @@ export function WeekTimelineView({
                               : 'bg-muted/40 border border-dashed border-muted-foreground/20',
                             isCurrentWeekInRange && 'ring-2 ring-primary/30 ring-offset-1'
                           )}
+                          onClick={(e) => {
+                            e.stopPropagation() // 阻止事件冒泡到任务行
+                            onWeekClick?.(task.id, taskWeekNumber)
+                          }}
                         >
                           {isCompleted && (
                             <div className="w-1.5 h-1.5 rounded-full bg-white/80" />

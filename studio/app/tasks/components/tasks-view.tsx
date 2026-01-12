@@ -19,6 +19,7 @@ export function TasksView({
 }: TasksViewProps = {} as TasksViewProps) {
   const [internalTasks, setInternalTasks] = useState<Task[]>([])
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number | null>(null) // 选中的周数（相对于任务开始周，从1开始）
   const { createTask } = useTasks()
 
   const tasks = externalTasks ?? internalTasks
@@ -36,6 +37,14 @@ export function TasksView({
   const handleTaskClick = useCallback((task: Task) => {
     // 切换激活状态：如果点击的是已激活的任务，则取消激活；否则激活该任务
     setActiveTaskId(prev => prev === task.id ? null : task.id)
+    // 点击任务时，清除选中的周
+    setSelectedWeekNumber(null)
+  }, [])
+
+  const handleWeekClick = useCallback((taskId: string, weekNumber: number) => {
+    // 设置激活的任务和选中的周
+    setActiveTaskId(taskId)
+    setSelectedWeekNumber(weekNumber)
   }, [])
 
   const handleCreateTask = useCallback(async () => {
@@ -79,6 +88,7 @@ export function TasksView({
               visibleWeeks={20}
               onTaskClick={handleTaskClick}
               activeTaskId={activeTaskId}
+              onWeekClick={handleWeekClick}
             />
           )}
         </CardContent>
@@ -88,6 +98,7 @@ export function TasksView({
       <CurrentWeekSection
         tasks={tasks}
         activeTaskId={activeTaskId}
+        selectedWeekNumber={selectedWeekNumber}
       />
     </div>
   )
