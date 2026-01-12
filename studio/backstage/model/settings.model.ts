@@ -22,7 +22,7 @@ export async function getSetting(key: string): Promise<string | null> {
  */
 export async function setSetting(key: string, value: string): Promise<void> {
   const db = await getDatabase()
-  const now = new Date().toISOString()
+  const now = new Date()
   await db
     .insertInto('settings')
     .values({

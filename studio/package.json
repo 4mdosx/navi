@@ -7,7 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "init-db": "tsx backstage/db/init-db.ts"
+    "init-db": "tsx backstage/db/init-db.ts",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop navi-studio",
+    "pm2:restart": "pm2 restart navi-studio",
+    "pm2:delete": "pm2 delete navi-studio",
+    "pm2:logs": "pm2 logs navi-studio",
+    "pm2:monit": "pm2 monit"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.2",
@@ -58,6 +64,7 @@
     "eslint-config-next": "^16.0.6",
     "tailwindcss": "^4.1.7",
     "tsx": "^4.19.2",
-    "typescript": "^5"
+    "typescript": "^5",
+    "pm2": "^5.3.0"
   }
 }
