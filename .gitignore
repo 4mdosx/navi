@@ -44,3 +44,4 @@ local.remote.db
 
 # config
 .env
+scripts/config.js
