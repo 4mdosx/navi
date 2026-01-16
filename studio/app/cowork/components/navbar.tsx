@@ -3,12 +3,11 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { CheckSquare, Home } from 'lucide-react'
+import { CheckSquare, Settings } from 'lucide-react'
 
 const navigation = [
-  { name: '任务管理', href: '/', icon: CheckSquare },
-  // 可以在这里添加更多导航项
-  // { name: '设置', href: '/settings', icon: Settings },
+  { name: '任务管理', href: '/cowork/tasks', icon: CheckSquare },
+  { name: '设置', href: '/cowork/settings', icon: Settings },
 ]
 
 export function Navbar() {

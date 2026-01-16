@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
-import Icon from "@/app/components/icon"
+import Icon from "@/components/icon"
 
 import { cn } from "@/lib/utils"
 

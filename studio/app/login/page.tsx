@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import VerificationCodeInput from './components/verification-code-input'
 import { AnimatePresence, motion } from 'framer-motion'
-import Icon from '@/app/components/icon'
+import Icon from '@/components/icon'
 import { login } from '../actions/auth'
 import { useRouter } from 'next/navigation'
 
