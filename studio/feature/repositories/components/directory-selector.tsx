@@ -143,30 +143,6 @@ export function DirectorySelector({ initialPath = '', onPathSelect }: DirectoryS
     }
   }
 
-  const handlePathInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setCurrentPath(e.target.value)
-  }
-
-  const handlePathInputSubmit = () => {
-    if (currentPath) {
-      // 重置所有列，加载新路径
-      setColumns([])
-      fetchDirectoryContents(currentPath)
-    }
-  }
-
-  const handleGoBack = () => {
-    if (columns.length > 1) {
-      // 移除最后一列
-      setColumns((prev) => prev.slice(0, -1))
-      // 更新当前路径为上一列的路径
-      const previousColumn = columns[columns.length - 2]
-      if (previousColumn) {
-        setCurrentPath(previousColumn.path)
-      }
-    }
-  }
-
   const handleSelectCurrentPath = () => {
     if (currentPath && onPathSelect) {
       onPathSelect(currentPath)

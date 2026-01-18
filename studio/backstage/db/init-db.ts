@@ -35,6 +35,16 @@ function initializeDatabase(): void {
       )
     `)
 
+    // 创建 repositories 表（如果不存在）
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS repositories (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL UNIQUE,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
     console.log('✓ Database initialized successfully')
   } catch (error) {
     console.error('✗ Failed to initialize database:', error)

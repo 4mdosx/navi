@@ -20,11 +20,28 @@ export function RepositoriesView() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
   const handlePathSelect = async (selectedPath: string) => {
-    // TODO: 调用 API 添加仓库
-    console.log('Selected path:', selectedPath)
-    setIsDialogOpen(false)
-    // 刷新仓库列表
-    mutate()
+    try {
+      const response = await fetch('/api/repositories', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ path: selectedPath }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to add repository' }))
+        throw new Error(error.error || 'Failed to add repository')
+      }
+
+      setIsDialogOpen(false)
+      // 刷新仓库列表
+      mutate()
+    } catch (error) {
+      console.error('Error adding repository:', error)
+      // TODO: 可以添加错误提示 UI
+      alert(error instanceof Error ? error.message : '添加仓库失败，请稍后重试')
+    }
   }
 
   return (

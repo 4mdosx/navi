@@ -23,18 +23,20 @@ export async function getSetting(key: string): Promise<string | null> {
 export async function setSetting(key: string, value: string): Promise<void> {
   const db = await getDatabase()
   const now = new Date()
+  // SQLite3 需要字符串格式的日期，而不是 Date 对象
+  const updatedAtString = now.toISOString()
   await db
     .insertInto('settings')
     .values({
       key,
       value,
-      updatedAt: now,
+      updatedAt: updatedAtString as any, // SQLite 存储为 TEXT，Kysely 会处理转换
     })
     .onConflict((oc) => oc
       .column('key')
       .doUpdateSet({
         value,
-        updatedAt: now,
+        updatedAt: updatedAtString as any,
       })
     )
     .execute()

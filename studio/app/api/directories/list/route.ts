@@ -94,7 +94,6 @@ export async function POST(request: NextRequest) {
 
     // 读取目录内容
     const entries = fs.readdirSync(absolutePath, { withFileTypes: true })
-    console.log('entries', entries)
     const items: DirectoryItem[] = entries
       .map((entry) => {
         const itemPath = path.join(absolutePath, entry.name)
