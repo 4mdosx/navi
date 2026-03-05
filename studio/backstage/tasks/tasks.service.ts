@@ -1,746 +1,384 @@
 'use server'
 import 'server-only'
-import { promises as fs } from 'fs'
-import { join } from 'path'
 import { nanoid } from 'nanoid'
-import { getSetting } from '@/backstage/model/settings.model'
-import type { Task } from '@/types/tasks'
+import { v4 as uuidv4 } from 'uuid'
+import { getDatabase } from '@/backstage/db/database'
+import type { Task, WeekItem, WeekCommentRecord } from '@/types/tasks'
 
 /**
- * 解析 markdown 文件，提取任务信息
+ * 解析 comment JSON，保证每项含 content, updateAt, goal
  */
-function parseMarkdownFile(
-  content: string,
-  filename: string
-): Task | null {
-  // 提取 frontmatter (YAML格式)
-  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
-  const match = content.match(frontmatterRegex)
-
-  let frontmatter: Record<string, any> = {}
-  let body = content
-
-  if (match) {
-    const frontmatterText = match[1]
-    body = match[2]
-
-    // 简单解析 YAML frontmatter
-    frontmatterText.split('\n').forEach((line) => {
-      const colonIndex = line.indexOf(':')
-      if (colonIndex > 0) {
-        const key = line.substring(0, colonIndex).trim()
-        const value = line
-          .substring(colonIndex + 1)
-          .trim()
-          .replace(/^["']|["']$/g, '')
-        frontmatter[key] = value
-      }
-    })
-  }
-
-  // 提取任务ID（从文件名或frontmatter）
-  const id =
-    frontmatter.taskId || frontmatter.id || filename.replace(/\.md$/, '')
-
-  // 提取标题（从frontmatter）
-  const title = frontmatter.title || filename.replace(/\.md$/, '')
-
-  // 提取创建时间
-  const createdAt =
-    frontmatter.createdAt ||
-    frontmatter.start_time ||
-    frontmatter.startTime ||
-    new Date().toISOString()
-
-  // 提取更新时间
-  const updatedAt = frontmatter.updatedAt || createdAt
-
-  // 提取状态
-
-
-  // 提取 todo 项（从表格格式解析）
-  const todo: Array<Record<string, any>> = []
-
-  // 解析表格格式: | title | content | completed | comment |
-  // 匹配表格的所有行
-  const tableRowRegex = /^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/gm
-  const rows: string[] = []
-  let rowMatch
-  while ((rowMatch = tableRowRegex.exec(body)) !== null) {
-    rows.push(rowMatch[0])
-  }
-
-  // 跳过表头行（第一行）和分隔线（第二行），解析数据行
-  for (let i = 2; i < rows.length; i++) {
-    const row = rows[i]
-    const match = row.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/)
-    if (match) {
-      const title = match[1].trim()
-      const content = match[2].trim()
-      const completed = match[3].trim().toLowerCase()
-      const comment = match[4].trim()
-
-      // 跳过空行或分隔线
-      if (title.match(/^[-:]+$/) || (!title && !content)) {
-        continue
-      }
-
-      // 尝试解析 comment 为 JSON 数组，如果不是则保持原样
-      let parsedComment: any = comment
-      if (comment) {
-        try {
-          const parsed = JSON.parse(comment)
-          if (Array.isArray(parsed)) {
-            parsedComment = parsed
-          }
-        } catch {
-          // 如果不是有效的 JSON，保持原样
-          parsedComment = comment
-        }
-      }
-
-      todo.push({
-        title,
-        content,
-        completed: completed === 'true',
-        comment: parsedComment
-      })
-    }
-  }
-
-  const progress = todo.length > 0
-    ? Math.round((todo.filter((item) => item.completed).length / todo.length) * 100)
-    : 0
-
-  return {
-    id,
-    title,
-    progress,
-    createdAt,
-    updatedAt,
-    todo,
+function parseComment(commentStr: string): WeekCommentRecord[] {
+  if (!commentStr || commentStr === '[]') return []
+  try {
+    const parsed = JSON.parse(commentStr)
+    const arr = Array.isArray(parsed) ? parsed : [parsed]
+    return arr.map((item: any) => ({
+      content: String(item?.content ?? ''),
+      updateAt: String(item?.updateAt ?? new Date().toISOString()),
+      goal: typeof item?.goal === 'number' && !Number.isNaN(item.goal) ? item.goal : 0,
+    }))
+  } catch {
+    return []
   }
 }
 
 /**
- * 读取目录下的所有 markdown 文件并解析
- * @returns 解析后的任务列表
- * @throws 如果任务路径未配置或不存在，或读取文件时出错
+ * 从 DB 行组装为 Task 类型（week 每项：id, content, comment[]）
+ */
+function buildTask(
+  taskRow: { id: string; title: string; goal: number; createdAt: string; updatedAt: string },
+  todoRows: Array<{ id: string; content: string; comment: string }>
+): Task {
+  const week: WeekItem[] = todoRows.map((row) => ({
+    id: row.id,
+    content: row.content ?? '',
+    comment: parseComment(row.comment),
+  }))
+  return {
+    id: taskRow.id,
+    title: taskRow.title,
+    goal: taskRow.goal,
+    createdAt: taskRow.createdAt,
+    updatedAt: taskRow.updatedAt,
+    week,
+  }
+}
+
+/**
+ * 读取所有任务（从 SQLite）
  */
 export async function readTasksFromFiles(): Promise<Task[]> {
-  // 获取任务路径
-  const taskPath = await getSetting('task_path')
-  if (!taskPath) {
-    throw new Error('Task path not configured. Please set task_path first.')
-  }
+  const db = await getDatabase()
 
-  // 检查路径是否存在
-  try {
-    await fs.access(taskPath)
-  } catch {
-    throw new Error(`Task path does not exist: ${taskPath}`)
-  }
+  const taskRows = await db
+    .selectFrom('tasks')
+    .selectAll()
+    .orderBy('createdAt', 'desc')
+    .execute()
 
-  // 读取目录下的所有文件
-  const files = await fs.readdir(taskPath)
-  const mdFiles = files.filter((file) => file.endsWith('.md'))
-  // 解析每个 markdown 文件
   const tasks: Task[] = []
-  for (const file of mdFiles) {
-    try {
-      const filePath = join(taskPath, file)
-      const content = await fs.readFile(filePath, 'utf-8')
-      const parsed = parseMarkdownFile(content, file)
-      if (parsed) {
-        tasks.push(parsed)
-      }
-    } catch (error) {
-      console.error(`Error parsing file ${file}:`, error)
-      // 继续处理其他文件
-    }
+
+  for (const t of taskRows) {
+    const todoRows = await db
+      .selectFrom('task_todos')
+      .selectAll()
+      .where('taskId', '=', t.id)
+      .orderBy('todoIndex', 'asc')
+      .execute()
+
+    tasks.push(
+      buildTask(
+        {
+          id: t.id,
+          title: t.title,
+          goal: t.goal,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+        },
+        todoRows
+      )
+    )
   }
 
   return tasks
 }
 
+export interface CreateTaskOptions {
+  goal?: number
+  initialWeeks?: Array<{ content: string }>
+}
+
 /**
- * 创建任务模板文件
- * @param title 任务标题
- * @returns 创建的文件路径
- * @throws 如果任务路径未配置或不存在，或创建文件时出错
+ * 创建任务（写入 SQLite）
+ * @returns 任务 ID（兼容原 API 返回 filePath 的语义，调用方可用作标识）
  */
 export async function createTaskFile(
   title: string,
+  options?: CreateTaskOptions
 ): Promise<string> {
-  // 获取任务路径
-  const taskPath = await getSetting('task_path')
-  if (!taskPath) {
-    throw new Error('Task path not configured. Please set task_path first.')
-  }
-
-  // 检查路径是否存在
-  try {
-    await fs.access(taskPath)
-  } catch {
-    throw new Error(`Task path does not exist: ${taskPath}`)
-  }
-
-  // 生成任务ID（使用 nanoid + 时间戳）
-  const timestamp = Date.now()
-  const nanoId = nanoid(8) // 生成8位随机ID
-  const taskId = `task-${timestamp}-${nanoId}`
-
-  // 生成文件名
-  const filename = `${taskId}.md`
-  const filePath = join(taskPath, filename)
-
-  // 检查文件是否已存在
-  try {
-    await fs.access(filePath)
-    throw new Error(`Task file already exists: ${filename}`)
-  } catch (error: any) {
-    if (error.code !== 'ENOENT') {
-      throw error
-    }
-  }
-
-  // 创建任务内容模板
+  const db = await getDatabase()
   const now = new Date().toISOString()
-  const frontmatter = {
-    taskId: taskId, // 保留 taskId 以兼容解析逻辑
-    id: taskId,
-    title,
-    createdAt: now,
-    progress: 0,
+  const taskId = `task-${Date.now()}-${nanoid(8)}`
+  const goal = options?.goal ?? 0
+
+  await db
+    .insertInto('tasks')
+    .values({
+      id: taskId,
+      title,
+      progress: 0,
+      goal,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .execute()
+
+  const initialWeeks = options?.initialWeeks ?? []
+  for (let i = 0; i < initialWeeks.length; i++) {
+    const row = initialWeeks[i]
+    await db
+      .insertInto('task_todos')
+      .values({
+        taskId,
+        todoIndex: i,
+        id: uuidv4(),
+        content: row.content ?? '',
+        comment: '[]',
+      })
+      .execute()
   }
 
-  const frontmatterYaml = Object.entries(frontmatter)
-    .map(([key, value]) => `${key}: ${typeof value === 'string' ? `"${value}"` : value}`)
-    .join('\n')
-
-  const content = `---
-${frontmatterYaml}
----
-
-| title | content | completed | comment |
-| ----- | ------- | --------- | ------- |
-`
-
-  // 写入文件
-  await fs.writeFile(filePath, content, 'utf-8')
-
-  return filePath
+  return taskId
 }
 
 /**
- * 更新任务的 todo 项的 completed 状态
- * @param taskId 任务 ID
- * @param todoIndex todo 项的索引（从 0 开始）
- * @param completed 是否完成
- * @returns 更新后的任务
- * @throws 如果任务路径未配置或不存在，或更新文件时出错
+ * 更新任务基本信息（标题、每周目标分数）
  */
-export async function updateTodoCompleted(
+export async function updateTask(
   taskId: string,
-  todoIndex: number,
-  completed: boolean
+  data: { title?: string; goal?: number }
 ): Promise<Task> {
-  // 获取任务路径
-  const taskPath = await getSetting('task_path')
-  if (!taskPath) {
-    throw new Error('Task path not configured. Please set task_path first.')
-  }
+  const db = await getDatabase()
+  const taskRow = await db
+    .selectFrom('tasks')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirst()
 
-  // 检查路径是否存在
-  try {
-    await fs.access(taskPath)
-  } catch {
-    throw new Error(`Task path does not exist: ${taskPath}`)
-  }
-
-  // 查找对应的文件
-  const files = await fs.readdir(taskPath)
-  const mdFiles = files.filter((file) => file.endsWith('.md'))
-
-  let filePath: string | null = null
-  let filename: string | null = null
-
-  // 通过文件名或文件内容中的 taskId 查找文件
-  for (const file of mdFiles) {
-    const path = join(taskPath, file)
-    const content = await fs.readFile(path, 'utf-8')
-    const parsed = parseMarkdownFile(content, file)
-    if (parsed && parsed.id === taskId) {
-      filePath = path
-      filename = file
-      break
-    }
-  }
-
-  if (!filePath || !filename) {
+  if (!taskRow) {
     throw new Error(`Task not found: ${taskId}`)
   }
 
-  // 读取文件内容
-  const content = await fs.readFile(filePath, 'utf-8')
-
-  // 分离 frontmatter 和 body
-  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
-  const match = content.match(frontmatterRegex)
-
-  if (!match) {
-    throw new Error(`Invalid markdown file format: ${filename}`)
+  const now = new Date().toISOString()
+  const updates: { title?: string; goal?: number; updatedAt: string } = {
+    updatedAt: now,
   }
+  if (data.title !== undefined) updates.title = data.title
+  if (data.goal !== undefined) updates.goal = data.goal
 
-  const frontmatterText = match[1]
-  let body = match[2]
+  await db
+    .updateTable('tasks')
+    .set(updates)
+    .where('id', '=', taskId)
+    .execute()
 
-  // 解析 frontmatter
-  const frontmatter: Record<string, any> = {}
-  frontmatterText.split('\n').forEach((line) => {
-    const colonIndex = line.indexOf(':')
-    if (colonIndex > 0) {
-      const key = line.substring(0, colonIndex).trim()
-      const value = line
-        .substring(colonIndex + 1)
-        .trim()
-        .replace(/^["']|["']$/g, '')
-      frontmatter[key] = value
-    }
-  })
+  const updated = await db
+    .selectFrom('tasks')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirst()
+  if (!updated) throw new Error(`Task not found: ${taskId}`)
 
-  // 解析表格并更新指定行的 completed 字段
-  const tableRowRegex = /^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/gm
-  const rows: string[] = []
-  let rowMatch
-  while ((rowMatch = tableRowRegex.exec(body)) !== null) {
-    rows.push(rowMatch[0])
-  }
+  const todoRows = await db
+    .selectFrom('task_todos')
+    .selectAll()
+    .where('taskId', '=', taskId)
+    .orderBy('todoIndex', 'asc')
+    .execute()
 
-  // 更新指定索引的 todo 行（跳过表头和分隔线）
-  const dataRowIndex = todoIndex + 2 // +2 因为前两行是表头和分隔线
-  if (dataRowIndex < rows.length) {
-    const row = rows[dataRowIndex]
-    const rowMatch = row.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/)
-    if (rowMatch) {
-      const title = rowMatch[1].trim()
-      const content = rowMatch[2].trim()
-      const comment = rowMatch[4].trim()
-
-      // 更新 completed 字段
-      const newCompleted = completed ? 'true' : 'false'
-      const newRow = `| ${title} | ${content} | ${newCompleted} | ${comment} |`
-      rows[dataRowIndex] = newRow
-    }
-  } else {
-    throw new Error(`Todo index out of range: ${todoIndex}`)
-  }
-
-  // 重新构建 body（保留表头和分隔线，更新数据行）
-  const tableHeader = rows[0]
-  const tableSeparator = rows[1]
-  const dataRows = rows.slice(2)
-
-  // 找到表格的开始位置（匹配表头）
-  const tableStartRegex = /^\| title \| content \| completed \| comment \|/m
-  const tableMatch = body.match(tableStartRegex)
-
-  if (tableMatch) {
-    const tableStartIndex = tableMatch.index!
-    // 找到表格结束位置（下一个非表格行或文件结束）
-    const afterTable = body.substring(tableStartIndex)
-    const tableEndMatch = afterTable.match(/\n(?!\|)/)
-    const tableEndIndex = tableEndMatch
-      ? tableStartIndex + tableEndMatch.index!
-      : body.length
-
-    // 替换表格部分
-    const beforeTable = body.substring(0, tableStartIndex)
-    const afterTableContent = body.substring(tableEndIndex)
-    body = beforeTable + `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}` + (afterTableContent.startsWith('\n') ? '' : '\n') + afterTableContent
-  } else {
-    // 如果没有找到表格，直接替换整个 body（这种情况不应该发生）
-    body = `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}`
-  }
-
-  // 更新 frontmatter 中的 updatedAt
-  frontmatter.updatedAt = new Date().toISOString()
-
-  // 重新构建 frontmatter
-  const frontmatterYaml = Object.entries(frontmatter)
-    .map(([key, value]) => `${key}: ${typeof value === 'string' ? `"${value}"` : value}`)
-    .join('\n')
-
-  // 重新构建完整内容
-  const newContent = `---
-${frontmatterYaml}
----
-
-${body}`
-
-  // 写回文件
-  await fs.writeFile(filePath, newContent, 'utf-8')
-
-  // 返回更新后的任务
-  return parseMarkdownFile(newContent, filename)!
+  return buildTask(
+    {
+      id: updated.id,
+      title: updated.title,
+      goal: updated.goal,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    },
+    todoRows
+  )
 }
 
 /**
- * 添加记录到任务的 todo 项的 comment
- * @param taskId 任务 ID
- * @param todoIndex todo 项的索引（从 0 开始）
- * @param recordContent 记录内容
- * @returns 更新后的任务
- * @throws 如果任务路径未配置或不存在，或更新文件时出错
+ * 删除任务（会级联删除 task_todos）
+ */
+export async function deleteTask(taskId: string): Promise<void> {
+  const db = await getDatabase()
+  const row = await db
+    .selectFrom('tasks')
+    .select('id')
+    .where('id', '=', taskId)
+    .executeTakeFirst()
+  if (!row) {
+    throw new Error(`Task not found: ${taskId}`)
+  }
+  await db.deleteFrom('task_todos').where('taskId', '=', taskId).execute()
+  await db.deleteFrom('tasks').where('id', '=', taskId).execute()
+}
+
+/**
+ * 新版格式无 completed 列，此接口仅重新读取并返回任务，不修改存储。
+ */
+export async function updateTodoCompleted(
+  taskId: string,
+  _todoIndex: number,
+  _completed: boolean
+): Promise<Task> {
+  const db = await getDatabase()
+
+  const taskRow = await db
+    .selectFrom('tasks')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirst()
+
+  if (!taskRow) {
+    throw new Error(`Task not found: ${taskId}`)
+  }
+
+  const todoRows = await db
+    .selectFrom('task_todos')
+    .selectAll()
+    .where('taskId', '=', taskId)
+    .orderBy('todoIndex', 'asc')
+    .execute()
+
+  return buildTask(
+    {
+      id: taskRow.id,
+      title: taskRow.title,
+      goal: taskRow.goal,
+      createdAt: taskRow.createdAt,
+      updatedAt: taskRow.updatedAt,
+    },
+    todoRows
+  )
+}
+
+/**
+ * 添加记录到任务的 week 项的 comment（每条可带 goal）
  */
 export async function addTodoCommentRecord(
   taskId: string,
   todoIndex: number,
-  recordContent: string
+  recordContent: string,
+  goal: number = 0
 ): Promise<Task> {
-  // 获取任务路径
-  const taskPath = await getSetting('task_path')
-  if (!taskPath) {
-    throw new Error('Task path not configured. Please set task_path first.')
-  }
+  const db = await getDatabase()
 
-  // 检查路径是否存在
-  try {
-    await fs.access(taskPath)
-  } catch {
-    throw new Error(`Task path does not exist: ${taskPath}`)
-  }
+  const todoRow = await db
+    .selectFrom('task_todos')
+    .selectAll()
+    .where('taskId', '=', taskId)
+    .where('todoIndex', '=', todoIndex)
+    .executeTakeFirst()
 
-  // 查找对应的文件
-  const files = await fs.readdir(taskPath)
-  const mdFiles = files.filter((file) => file.endsWith('.md'))
-
-  let filePath: string | null = null
-  let filename: string | null = null
-
-  // 通过文件名或文件内容中的 taskId 查找文件
-  for (const file of mdFiles) {
-    const path = join(taskPath, file)
-    const content = await fs.readFile(path, 'utf-8')
-    const parsed = parseMarkdownFile(content, file)
-    if (parsed && parsed.id === taskId) {
-      filePath = path
-      filename = file
-      break
-    }
-  }
-
-  if (!filePath || !filename) {
-    throw new Error(`Task not found: ${taskId}`)
-  }
-
-  // 读取文件内容
-  const content = await fs.readFile(filePath, 'utf-8')
-
-  // 分离 frontmatter 和 body
-  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
-  const match = content.match(frontmatterRegex)
-
-  if (!match) {
-    throw new Error(`Invalid markdown file format: ${filename}`)
-  }
-
-  const frontmatterText = match[1]
-  let body = match[2]
-
-  // 解析 frontmatter
-  const frontmatter: Record<string, any> = {}
-  frontmatterText.split('\n').forEach((line) => {
-    const colonIndex = line.indexOf(':')
-    if (colonIndex > 0) {
-      const key = line.substring(0, colonIndex).trim()
-      const value = line
-        .substring(colonIndex + 1)
-        .trim()
-        .replace(/^["']|["']$/g, '')
-      frontmatter[key] = value
-    }
-  })
-
-  // 解析表格
-  const tableRowRegex = /^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/gm
-  const rows: string[] = []
-  let rowMatch
-  while ((rowMatch = tableRowRegex.exec(body)) !== null) {
-    rows.push(rowMatch[0])
-  }
-
-  // 更新指定索引的 todo 行的 comment 字段
-  const dataRowIndex = todoIndex + 2 // +2 因为前两行是表头和分隔线
-  if (dataRowIndex < rows.length) {
-    const row = rows[dataRowIndex]
-    const rowMatch = row.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/)
-    if (rowMatch) {
-      const title = rowMatch[1].trim()
-      const content = rowMatch[2].trim()
-      const completed = rowMatch[3].trim()
-      const oldComment = rowMatch[4].trim()
-
-      // 解析现有的 comment（可能是 JSON 数组或字符串）
-      let commentArray: Array<{ content: string; updateAt: string }> = []
-      if (oldComment) {
-        try {
-          const parsed = JSON.parse(oldComment)
-          if (Array.isArray(parsed)) {
-            commentArray = parsed
-          } else {
-            // 如果是旧格式的字符串，转换为数组格式
-            commentArray = [{ content: oldComment, updateAt: new Date().toISOString() }]
-          }
-        } catch {
-          // 如果不是 JSON，作为旧格式处理
-          commentArray = [{ content: oldComment, updateAt: new Date().toISOString() }]
-        }
-      }
-
-      // 添加新记录
-      commentArray.push({
-        content: recordContent,
-        updateAt: new Date().toISOString()
-      })
-
-      // 将数组序列化为 JSON 字符串
-      const newComment = JSON.stringify(commentArray)
-
-      // 更新行
-      const newRow = `| ${title} | ${content} | ${completed} | ${newComment} |`
-      rows[dataRowIndex] = newRow
-    }
-  } else {
+  if (!todoRow) {
     throw new Error(`Todo index out of range: ${todoIndex}`)
   }
 
-  // 重新构建 body（保留表头和分隔线，更新数据行）
-  const tableHeader = rows[0]
-  const tableSeparator = rows[1]
-  const dataRows = rows.slice(2)
+  const commentArray = parseComment(todoRow.comment)
+  commentArray.push({
+    content: recordContent,
+    updateAt: new Date().toISOString(),
+    goal: Number(goal) || 0,
+  })
+  const newComment = JSON.stringify(commentArray)
 
-  // 找到表格的开始位置（匹配表头）
-  const tableStartRegex = /^\| title \| content \| completed \| comment \|/m
-  const tableMatch = body.match(tableStartRegex)
+  await db
+    .updateTable('task_todos')
+    .set({ comment: newComment })
+    .where('taskId', '=', taskId)
+    .where('todoIndex', '=', todoIndex)
+    .execute()
 
-  if (tableMatch) {
-    const tableStartIndex = tableMatch.index!
-    // 找到表格结束位置（下一个非表格行或文件结束）
-    const afterTable = body.substring(tableStartIndex)
-    const tableEndMatch = afterTable.match(/\n(?!\|)/)
-    const tableEndIndex = tableEndMatch
-      ? tableStartIndex + tableEndMatch.index!
-      : body.length
+  const now = new Date().toISOString()
+  await db
+    .updateTable('tasks')
+    .set({ updatedAt: now })
+    .where('id', '=', taskId)
+    .execute()
 
-    // 替换表格部分
-    const beforeTable = body.substring(0, tableStartIndex)
-    const afterTableContent = body.substring(tableEndIndex)
-    body = beforeTable + `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}` + (afterTableContent.startsWith('\n') ? '' : '\n') + afterTableContent
-  } else {
-    // 如果没有找到表格，直接替换整个 body（这种情况不应该发生）
-    body = `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}`
-  }
+  const taskRow = await db
+    .selectFrom('tasks')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirst()
+  if (!taskRow) throw new Error(`Task not found: ${taskId}`)
 
-  // 更新 frontmatter 中的 updatedAt
-  frontmatter.updatedAt = new Date().toISOString()
+  const todoRows = await db
+    .selectFrom('task_todos')
+    .selectAll()
+    .where('taskId', '=', taskId)
+    .orderBy('todoIndex', 'asc')
+    .execute()
 
-  // 重新构建 frontmatter
-  const frontmatterYaml = Object.entries(frontmatter)
-    .map(([key, value]) => `${key}: ${typeof value === 'string' ? `"${value}"` : value}`)
-    .join('\n')
-
-  // 重新构建完整内容
-  const newContent = `---
-${frontmatterYaml}
----
-
-${body}`
-
-  // 写回文件
-  await fs.writeFile(filePath, newContent, 'utf-8')
-
-  // 返回更新后的任务
-  return parseMarkdownFile(newContent, filename)!
+  return buildTask(
+    {
+      id: taskRow.id,
+      title: taskRow.title,
+      goal: taskRow.goal,
+      createdAt: taskRow.createdAt,
+      updatedAt: taskRow.updatedAt,
+    },
+    todoRows
+  )
 }
 
 /**
  * 删除任务的 todo 项的 comment 中的记录
- * @param taskId 任务 ID
- * @param todoIndex todo 项的索引（从 0 开始）
- * @param recordIndex 记录的索引（从 0 开始）
- * @returns 更新后的任务
- * @throws 如果任务路径未配置或不存在，或更新文件时出错
  */
 export async function deleteTodoCommentRecord(
   taskId: string,
   todoIndex: number,
   recordIndex: number
 ): Promise<Task> {
-  // 获取任务路径
-  const taskPath = await getSetting('task_path')
-  if (!taskPath) {
-    throw new Error('Task path not configured. Please set task_path first.')
-  }
+  const db = await getDatabase()
 
-  // 检查路径是否存在
-  try {
-    await fs.access(taskPath)
-  } catch {
-    throw new Error(`Task path does not exist: ${taskPath}`)
-  }
+  const todoRow = await db
+    .selectFrom('task_todos')
+    .selectAll()
+    .where('taskId', '=', taskId)
+    .where('todoIndex', '=', todoIndex)
+    .executeTakeFirst()
 
-  // 查找对应的文件
-  const files = await fs.readdir(taskPath)
-  const mdFiles = files.filter((file) => file.endsWith('.md'))
-
-  let filePath: string | null = null
-  let filename: string | null = null
-
-  // 通过文件名或文件内容中的 taskId 查找文件
-  for (const file of mdFiles) {
-    const path = join(taskPath, file)
-    const content = await fs.readFile(path, 'utf-8')
-    const parsed = parseMarkdownFile(content, file)
-    if (parsed && parsed.id === taskId) {
-      filePath = path
-      filename = file
-      break
-    }
-  }
-
-  if (!filePath || !filename) {
-    throw new Error(`Task not found: ${taskId}`)
-  }
-
-  // 读取文件内容
-  const content = await fs.readFile(filePath, 'utf-8')
-
-  // 分离 frontmatter 和 body
-  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
-  const match = content.match(frontmatterRegex)
-
-  if (!match) {
-    throw new Error(`Invalid markdown file format: ${filename}`)
-  }
-
-  const frontmatterText = match[1]
-  let body = match[2]
-
-  // 解析 frontmatter
-  const frontmatter: Record<string, any> = {}
-  frontmatterText.split('\n').forEach((line) => {
-    const colonIndex = line.indexOf(':')
-    if (colonIndex > 0) {
-      const key = line.substring(0, colonIndex).trim()
-      const value = line
-        .substring(colonIndex + 1)
-        .trim()
-        .replace(/^["']|["']$/g, '')
-      frontmatter[key] = value
-    }
-  })
-
-  // 解析表格
-  const tableRowRegex = /^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/gm
-  const rows: string[] = []
-  let rowMatch
-  while ((rowMatch = tableRowRegex.exec(body)) !== null) {
-    rows.push(rowMatch[0])
-  }
-
-  // 更新指定索引的 todo 行的 comment 字段
-  const dataRowIndex = todoIndex + 2 // +2 因为前两行是表头和分隔线
-  if (dataRowIndex < rows.length) {
-    const row = rows[dataRowIndex]
-    const rowMatch = row.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/)
-    if (rowMatch) {
-      const title = rowMatch[1].trim()
-      const content = rowMatch[2].trim()
-      const completed = rowMatch[3].trim()
-      const oldComment = rowMatch[4].trim()
-
-      // 解析现有的 comment（可能是 JSON 数组或字符串）
-      let commentArray: Array<{ content: string; updateAt: string }> = []
-      if (oldComment) {
-        try {
-          const parsed = JSON.parse(oldComment)
-          if (Array.isArray(parsed)) {
-            commentArray = parsed
-          } else {
-            // 如果是旧格式的字符串，转换为数组格式
-            commentArray = [{ content: oldComment, updateAt: new Date().toISOString() }]
-          }
-        } catch {
-          // 如果不是 JSON，作为旧格式处理
-          commentArray = [{ content: oldComment, updateAt: new Date().toISOString() }]
-        }
-      }
-
-      // 检查记录索引是否有效
-      if (recordIndex < 0 || recordIndex >= commentArray.length) {
-        throw new Error(`Record index out of range: ${recordIndex}`)
-      }
-
-      // 删除指定索引的记录
-      commentArray.splice(recordIndex, 1)
-
-      // 将数组序列化为 JSON 字符串（如果数组为空，则使用空字符串）
-      const newComment = commentArray.length > 0 ? JSON.stringify(commentArray) : ''
-
-      // 更新行
-      const newRow = `| ${title} | ${content} | ${completed} | ${newComment} |`
-      rows[dataRowIndex] = newRow
-    }
-  } else {
+  if (!todoRow) {
     throw new Error(`Todo index out of range: ${todoIndex}`)
   }
 
-  // 重新构建 body（保留表头和分隔线，更新数据行）
-  const tableHeader = rows[0]
-  const tableSeparator = rows[1]
-  const dataRows = rows.slice(2)
-
-  // 找到表格的开始位置（匹配表头）
-  const tableStartRegex = /^\| title \| content \| completed \| comment \|/m
-  const tableMatch = body.match(tableStartRegex)
-
-  if (tableMatch) {
-    const tableStartIndex = tableMatch.index!
-    // 找到表格结束位置（下一个非表格行或文件结束）
-    const afterTable = body.substring(tableStartIndex)
-    const tableEndMatch = afterTable.match(/\n(?!\|)/)
-    const tableEndIndex = tableEndMatch
-      ? tableStartIndex + tableEndMatch.index!
-      : body.length
-
-    // 替换表格部分
-    const beforeTable = body.substring(0, tableStartIndex)
-    const afterTableContent = body.substring(tableEndIndex)
-    body = beforeTable + `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}` + (afterTableContent.startsWith('\n') ? '' : '\n') + afterTableContent
-  } else {
-    // 如果没有找到表格，直接替换整个 body（这种情况不应该发生）
-    body = `${tableHeader}\n${tableSeparator}\n${dataRows.join('\n')}`
+  const commentArray = parseComment(todoRow.comment)
+  if (recordIndex < 0 || recordIndex >= commentArray.length) {
+    throw new Error(`Record index out of range: ${recordIndex}`)
   }
+  commentArray.splice(recordIndex, 1)
+  const newComment = commentArray.length > 0 ? JSON.stringify(commentArray) : '[]'
 
-  // 更新 frontmatter 中的 updatedAt
-  frontmatter.updatedAt = new Date().toISOString()
+  await db
+    .updateTable('task_todos')
+    .set({ comment: newComment })
+    .where('taskId', '=', taskId)
+    .where('todoIndex', '=', todoIndex)
+    .execute()
 
-  // 重新构建 frontmatter
-  const frontmatterYaml = Object.entries(frontmatter)
-    .map(([key, value]) => `${key}: ${typeof value === 'string' ? `"${value}"` : value}`)
-    .join('\n')
+  const now = new Date().toISOString()
+  await db
+    .updateTable('tasks')
+    .set({ updatedAt: now })
+    .where('id', '=', taskId)
+    .execute()
 
-  // 重新构建完整内容
-  const newContent = `---
-${frontmatterYaml}
----
+  const taskRow = await db
+    .selectFrom('tasks')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirst()
+  if (!taskRow) throw new Error(`Task not found: ${taskId}`)
 
-${body}`
+  const todoRows = await db
+    .selectFrom('task_todos')
+    .selectAll()
+    .where('taskId', '=', taskId)
+    .orderBy('todoIndex', 'asc')
+    .execute()
 
-  // 写回文件
-  await fs.writeFile(filePath, newContent, 'utf-8')
-
-  // 返回更新后的任务
-  return parseMarkdownFile(newContent, filename)!
+  return buildTask(
+    {
+      id: taskRow.id,
+      title: taskRow.title,
+      goal: taskRow.goal,
+      createdAt: taskRow.createdAt,
+      updatedAt: taskRow.updatedAt,
+    },
+    todoRows
+  )
 }

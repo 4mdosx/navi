@@ -12,4 +12,19 @@ export interface Database {
     path: string
     createdAt: Date
   }
+  tasks: {
+    id: string
+    title: string
+    progress: number
+    goal: number
+    createdAt: string
+    updatedAt: string
+  }
+  task_todos: {
+    taskId: string
+    todoIndex: number
+    id: string // uuid
+    content: string
+    comment: string // JSON: Array<{ content, updateAt, goal }>
+  }
 }

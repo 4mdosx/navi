@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import VerificationCodeInput from './components/verification-code-input'
 import { AnimatePresence, motion } from 'framer-motion'
-import Icon from '@/components/icon'
+import { ShieldCheck } from 'lucide-react'
 import { login } from '../actions/auth'
 import { useRouter } from 'next/navigation'
 
@@ -45,7 +45,7 @@ export default function LoginPage() {
           <Card className="border-none shadow-lg">
             <CardHeader className="space-y-1">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                <Icon icon="lucide:shield-check" className="h-6 w-6 text-primary" />
+                <ShieldCheck className="h-6 w-6 text-primary" />
               </div>
               <CardTitle className="text-center text-2xl">
                 Verification Required

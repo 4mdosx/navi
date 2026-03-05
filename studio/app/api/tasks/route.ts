@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readTasksFromFiles, createTaskFile, updateTodoCompleted, addTodoCommentRecord } from '@/backstage/tasks/tasks.service'
+import { readTasksFromFiles, createTaskFile, updateTask, deleteTask, updateTodoCompleted, addTodoCommentRecord } from '@/backstage/tasks/tasks.service'
 
 /**
  * GET - 读取目录下的所有 markdown 文件并解析
@@ -35,12 +35,13 @@ export async function GET() {
 }
 
 /**
- * POST - 创建任务模板文件
+ * POST - 创建任务
+ * body: { title: string, goal?: number, initialWeeks?: Array<{ content: string }> }
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { title } = body
+    const { title, goal, initialWeeks } = body
 
     if (!title || typeof title !== 'string') {
       return NextResponse.json(
@@ -49,7 +50,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const filePath = await createTaskFile(title)
+    const options =
+      goal != null || (Array.isArray(initialWeeks) && initialWeeks.length > 0)
+        ? {
+            goal:
+              typeof goal === 'number' && !Number.isNaN(goal) ? goal : undefined,
+            initialWeeks: Array.isArray(initialWeeks)
+              ? initialWeeks.map((row: any) => ({ content: String(row?.content ?? '') }))
+              : undefined,
+          }
+        : undefined
+
+    const filePath = await createTaskFile(title, options)
     return NextResponse.json({
       success: true,
       filePath,
@@ -82,6 +94,84 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { error: 'Failed to create task file' },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * PUT - 更新任务基本信息（标题、每周目标分数）
+ * body: { taskId: string, title?: string, goal?: number }
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { taskId, title, goal } = body
+
+    if (!taskId || typeof taskId !== 'string') {
+      return NextResponse.json(
+        { error: 'taskId is required' },
+        { status: 400 }
+      )
+    }
+
+    const data: { title?: string; goal?: number } = {}
+    if (title !== undefined && typeof title === 'string') data.title = title
+    if (goal !== undefined && typeof goal === 'number' && !Number.isNaN(goal)) data.goal = goal
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json(
+        { error: 'At least one of title or goal is required' },
+        { status: 400 }
+      )
+    }
+
+    const task = await updateTask(taskId, data)
+    return NextResponse.json({
+      success: true,
+      task,
+      message: 'Task updated successfully',
+    })
+  } catch (error) {
+    console.error('Error updating task:', error)
+    if (error instanceof Error && error.message.includes('not found')) {
+      return NextResponse.json({ error: error.message }, { status: 404 })
+    }
+    return NextResponse.json(
+      { error: 'Failed to update task' },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * DELETE - 删除任务
+ * body: { taskId: string }
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { taskId } = body
+
+    if (!taskId || typeof taskId !== 'string') {
+      return NextResponse.json(
+        { error: 'taskId is required' },
+        { status: 400 }
+      )
+    }
+
+    await deleteTask(taskId)
+    return NextResponse.json({
+      success: true,
+      message: 'Task deleted successfully',
+    })
+  } catch (error) {
+    console.error('Error deleting task:', error)
+    if (error instanceof Error && error.message.includes('not found')) {
+      return NextResponse.json({ error: error.message }, { status: 404 })
+    }
+    return NextResponse.json(
+      { error: 'Failed to delete task' },
       { status: 500 }
     )
   }

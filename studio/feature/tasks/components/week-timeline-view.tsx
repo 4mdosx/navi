@@ -3,10 +3,11 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
 import { format, getWeek, getYear, startOfWeek, addWeeks, subWeeks, isSameWeek } from 'date-fns'
 import { cn } from '@/lib/utils'
-import { RotateCcw } from 'lucide-react'
+import { RotateCcw, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { Task } from '@/types/tasks'
+import type { Task, WeekCommentRecord } from '@/types/tasks'
 import { getTaskStartWeek } from '@/backstage/tasks/utils'
+import { EditTaskDialog } from './edit-task-dialog'
 
 interface WeekTimelineViewProps {
   tasks: Task[]
@@ -14,6 +15,8 @@ interface WeekTimelineViewProps {
   onTaskClick?: (task: Task) => void
   activeTaskId?: string | null // 激活的任务 ID
   onWeekClick?: (taskId: string, weekIndex: number) => void // 点击周时的回调，weekIndex 是相对于任务开始周的周数（从1开始）
+  onTaskUpdate?: (taskId: string, values: { title: string; goal?: number }) => Promise<void>
+  onTaskDelete?: (taskId: string) => Promise<void>
 }
 
 interface WeekData {
@@ -30,9 +33,13 @@ export function WeekTimelineView({
   visibleWeeks = 10,
   onTaskClick,
   activeTaskId,
-  onWeekClick
+  onWeekClick,
+  onTaskUpdate,
+  onTaskDelete,
 }: WeekTimelineViewProps) {
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null)
+  const [taskToEdit, setTaskToEdit] = useState<Task | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [weeksBefore, setWeeksBefore] = useState(visibleWeeks) // 当前周之前的周数
   const [weeksAfter, setWeeksAfter] = useState(visibleWeeks) // 当前周之后的周数
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -181,10 +188,10 @@ export function WeekTimelineView({
     }, 500)
   }
 
-  // 计算任务在时间线上的位置（基于 todo 个数）
+  // 计算任务在时间线上的位置（基于 week 个数）
   const getTaskWeekRange = (task: Task) => {
     const taskStartWeek = getTaskStartWeek(task)
-    const todoCount = task.todo?.length || 0
+    const weekCount = task.week?.length || 0
 
     // 找到任务开始的周索引
     const startWeekIndex = weeks.findIndex(w => {
@@ -200,13 +207,13 @@ export function WeekTimelineView({
       }
     }
 
-    // 基于 todo 个数计算结束周索引
-    const endWeekIndex = startWeekIndex + todoCount - 1
+    // 基于 week 个数计算结束周索引
+    const endWeekIndex = startWeekIndex + weekCount - 1
 
     return {
       startIndex: startWeekIndex,
       endIndex: Math.min(endWeekIndex, weeks.length - 1),
-      width: todoCount,
+      width: weekCount,
     }
   }
 
@@ -286,7 +293,7 @@ export function WeekTimelineView({
       <div className="space-y-4">
         {tasks.map((task) => {
           const weekRange = getTaskWeekRange(task)
-          const progressPercent = task.progress
+          const weekCount = task.week?.length || 0
           const isHovered = hoveredTaskId === task.id
           const isActive = activeTaskId === task.id
 
@@ -313,23 +320,33 @@ export function WeekTimelineView({
                   <h3 className="font-semibold text-sm leading-tight line-clamp-2 flex-1">
                     {task.title}
                   </h3>
+                  {onTaskUpdate && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        'h-7 w-7 shrink-0 transition-opacity',
+                        (isHovered || isActive) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setTaskToEdit(task)
+                        setEditDialogOpen(true)
+                      }}
+                      title="编辑任务"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
-                <div className="flex items-center gap-3 mt-3">
-                  {/* 进度条 */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium text-foreground">
-                        {progressPercent}%
-                      </span>
-                    </div>
-                    <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full transition-all duration-500 rounded-full bg-blue-500"
-                        style={{ width: `${progressPercent}%` }}
-                      />
-                    </div>
+                {weekCount > 0 && (
+                  <div className="flex items-center gap-3 mt-3">
+                    <span className="text-xs text-muted-foreground">
+                      共 {weekCount} 周
+                    </span>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* 时间线区域 - 与标题行同步滚动 */}
@@ -367,11 +384,16 @@ export function WeekTimelineView({
                     )
                   }
 
-                  // 计算这个周在任务中的相对位置（0-1）
-                  const weekRelativePosition = (index - weekRange.startIndex + 1) / weekRange.width
-                  // 如果任务进度已经超过这个周的位置，则显示为已完成
-                  const expectedProgressAtWeek = weekRelativePosition * 100
-                  const isCompleted = expectedProgressAtWeek <= progressPercent
+                  // 该周：有内容或本周完成（comment 的 goal 累和 >= task.goal）
+                  const weekData = task.week?.[index - weekRange.startIndex]
+                  const hasContent = weekData && (String(weekData.content || '').trim() !== '')
+                  const weekGoalSum = weekData?.comment?.reduce(
+                    (s, c: WeekCommentRecord) => s + (Number(c.goal) || 0),
+                    0
+                  ) ?? 0
+                  const taskGoal = task.goal ?? 0
+                  const isWeekCompleted = taskGoal > 0 && weekGoalSum >= taskGoal
+                  const showFilled = hasContent || isWeekCompleted
                   const isCurrentWeekInRange = week.isCurrentWeek && isInTaskRange
 
                   // 计算这个周在任务中的周数（从1开始，相对于任务开始周）
@@ -392,7 +414,7 @@ export function WeekTimelineView({
                             'w-full h-8 rounded-md transition-all duration-300',
                             'flex items-center justify-center cursor-pointer',
                             'hover:ring-2 hover:ring-primary/50 hover:ring-offset-1',
-                            isCompleted
+                            showFilled
                               ? cn(
                                   'bg-gradient-to-b from-blue-500 to-blue-600',
                                   'shadow-sm shadow-primary/20',
@@ -406,7 +428,7 @@ export function WeekTimelineView({
                             onWeekClick?.(task.id, taskWeekNumber)
                           }}
                         >
-                          {isCompleted && (
+                          {showFilled && (
                             <div className="w-1.5 h-1.5 rounded-full bg-white/80" />
                           )}
                         </div>
@@ -422,6 +444,18 @@ export function WeekTimelineView({
           )
         })}
       </div>
+
+      <EditTaskDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        task={taskToEdit}
+        onSubmit={async (values) => {
+          if (taskToEdit && onTaskUpdate) {
+            await onTaskUpdate(taskToEdit.id, values)
+          }
+        }}
+        onDelete={onTaskDelete}
+      />
     </div>
   )
 }

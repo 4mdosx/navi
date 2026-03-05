@@ -7,7 +7,7 @@ import { addTodoCommentRecord, deleteTodoCommentRecord } from '@/backstage/tasks
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { taskId, todoIndex, recordContent } = body
+    const { taskId, todoIndex, recordContent, goal } = body
 
     if (!taskId || typeof taskId !== 'string') {
       return NextResponse.json(
@@ -30,7 +30,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const updatedTask = await addTodoCommentRecord(taskId, todoIndex, recordContent)
+    const goalNum = typeof goal === 'number' && !Number.isNaN(goal) ? goal : 0
+    const updatedTask = await addTodoCommentRecord(taskId, todoIndex, recordContent, goalNum)
     return NextResponse.json({
       success: true,
       task: updatedTask,

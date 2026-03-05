@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import { WeekTimelineView } from './week-timeline-view'
 import { CurrentWeekSection } from './current-week-section'
+import { CreateTaskDialog } from './create-task-dialog'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useTasks } from '../hooks/use-tasks'
@@ -19,8 +20,9 @@ export function TasksView({
 }: TasksViewProps = {} as TasksViewProps) {
   const [internalTasks, setInternalTasks] = useState<Task[]>([])
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
-  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number | null>(null) // 选中的周数（相对于任务开始周，从1开始）
-  const { createTask } = useTasks()
+  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number | null>(null)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const { createTask, updateTask, deleteTask } = useTasks()
 
   const tasks = externalTasks ?? internalTasks
 
@@ -47,25 +49,41 @@ export function TasksView({
     setSelectedWeekNumber(weekNumber)
   }, [])
 
-  const handleCreateTask = useCallback(async () => {
-    const title = prompt('请输入任务标题:')
-    if (!title) {
-      return
-    }
+  const handleCreateTask = useCallback(() => {
+    setCreateDialogOpen(true)
+  }, [])
 
-    try {
-      await createTask(title)
-    } catch (error) {
-      console.error('Error creating task:', error)
-      alert(error instanceof Error ? error.message : '创建任务失败，请重试')
-    }
-  }, [createTask])
+  const handleCreateSubmit = useCallback(
+    async (values: {
+      title: string
+      goal?: number
+      initialWeeks?: Array<{ content: string }>
+    }) => {
+      try {
+        await createTask(values)
+      } catch (error) {
+        console.error('Error creating task:', error)
+        throw error
+      }
+    },
+    [createTask]
+  )
 
   return (
     <div>
       {/* 周视图时间线 */}
       <Card className="mb-8">
         <CardHeader className="pb-3">
+          {tasks.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCreateTask}
+              className="w-fit"
+            >
+              创建任务
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="pt-0">
           {tasks.length === 0 ? (
@@ -89,10 +107,18 @@ export function TasksView({
               onTaskClick={handleTaskClick}
               activeTaskId={activeTaskId}
               onWeekClick={handleWeekClick}
+              onTaskUpdate={updateTask}
+              onTaskDelete={deleteTask}
             />
           )}
         </CardContent>
       </Card>
+
+      <CreateTaskDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onSubmit={handleCreateSubmit}
+      />
 
       {/* 本周进展区域 */}
       <CurrentWeekSection

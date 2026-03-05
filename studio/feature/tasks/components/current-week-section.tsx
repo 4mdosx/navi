@@ -16,7 +16,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Plus, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
-import type { Task } from '@/types/tasks'
+import type { Task, WeekCommentRecord } from '@/types/tasks'
 import {
   getCurrentWeekNumber,
   getWeekStartDate,
@@ -33,15 +33,11 @@ interface TaskWeekCardProps {
   task: Task
   weekNumber: number // 要显示的周数（相对于任务开始周，从1开始）
   weekStartDate: Date
-  onTodoUpdate?: (
-    taskId: string,
-    todoIndex: number,
-    completed: boolean
-  ) => Promise<void>
   onAddRecord?: (
     taskId: string,
     todoIndex: number,
-    recordContent: string
+    recordContent: string,
+    goal?: number
   ) => Promise<void>
   onDeleteRecord?: (
     taskId: string,
@@ -53,49 +49,29 @@ interface TaskWeekCardProps {
 function TaskWeekCard({
   task,
   weekNumber,
-  onTodoUpdate,
   onAddRecord,
   onDeleteRecord,
 }: TaskWeekCardProps) {
-  // 显示指定周的 todo 项（todo 数组索引 = 周数 - 1）
+  // 显示指定周的记录（week 数组索引 = 周数 - 1）；每项含 id, content, comment（每条含 content, updateAt, goal）
   const weekTodoIndex = weekNumber - 1
-  const weekTodo = task.todo && task.todo[weekTodoIndex]
-  const [isUpdating, setIsUpdating] = useState(false)
+  const weekItem = task.week?.[weekTodoIndex]
   const [isAddingRecord, setIsAddingRecord] = useState(false)
   const [isDeletingRecord, setIsDeletingRecord] = useState<number | null>(null)
   const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(null)
   const isConfirmingDeleteRef = useRef(false)
   const [recordInput, setRecordInput] = useState('')
+  const [recordGoal, setRecordGoal] = useState<string>('')
   const [showAddRecord, setShowAddRecord] = useState(false)
-
-  const handleCheckboxChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!onTodoUpdate) return
-
-      const newCompleted = e.target.checked
-      setIsUpdating(true)
-
-      try {
-        await onTodoUpdate(task.id, weekTodoIndex, newCompleted)
-      } catch (error) {
-        console.error('Error updating todo:', error)
-        // 恢复 checkbox 状态
-        e.target.checked = !newCompleted
-        alert(error instanceof Error ? error.message : '更新失败，请重试')
-      } finally {
-        setIsUpdating(false)
-      }
-    },
-    [task.id, weekTodoIndex, onTodoUpdate]
-  )
 
   const handleAddRecord = useCallback(async () => {
     if (!onAddRecord || !recordInput.trim()) return
 
     setIsAddingRecord(true)
     try {
-      await onAddRecord(task.id, weekTodoIndex, recordInput.trim())
+      const goalNum = recordGoal.trim() === '' ? 0 : Number(recordGoal) || 0
+      await onAddRecord(task.id, weekTodoIndex, recordInput.trim(), goalNum)
       setRecordInput('')
+      setRecordGoal('')
       setShowAddRecord(false)
     } catch (error) {
       console.error('Error adding record:', error)
@@ -103,7 +79,7 @@ function TaskWeekCard({
     } finally {
       setIsAddingRecord(false)
     }
-  }, [task.id, weekTodoIndex, recordInput, onAddRecord])
+  }, [task.id, weekTodoIndex, recordInput, recordGoal, onAddRecord])
 
   const handleDeleteClick = useCallback((recordIndex: number) => {
     setPendingDeleteIndex(recordIndex)
@@ -137,31 +113,19 @@ function TaskWeekCard({
     setPendingDeleteIndex(null)
   }, [])
 
-  // 解析 comment：可能是数组或字符串
-  const commentRecords = useMemo(() => {
-    if (!weekTodo?.comment) return []
+  const commentRecords: WeekCommentRecord[] = useMemo(
+    () => (Array.isArray(weekItem?.comment) ? weekItem.comment : []),
+    [weekItem?.comment]
+  )
 
-    if (Array.isArray(weekTodo.comment)) {
-      return weekTodo.comment
-    }
+  const weekGoalSum = useMemo(
+    () => commentRecords.reduce((s, r) => s + (Number(r.goal) || 0), 0),
+    [commentRecords]
+  )
+  const taskGoal = task.goal ?? 0
+  const weekCompleted = taskGoal > 0 && weekGoalSum >= taskGoal
 
-    // 如果是字符串，尝试解析为 JSON
-    if (typeof weekTodo.comment === 'string') {
-      try {
-        const parsed = JSON.parse(weekTodo.comment)
-        if (Array.isArray(parsed)) {
-          return parsed
-        }
-      } catch {
-        // 如果不是 JSON，返回空数组（旧格式的字符串不显示）
-        return []
-      }
-    }
-
-    return []
-  }, [weekTodo?.comment])
-
-  if (!weekTodo) {
+  if (!weekItem) {
     return (
       <Card>
         <CardHeader className="pb-3">
@@ -171,17 +135,13 @@ function TaskWeekCard({
                 <span className="text-xs text-muted-foreground">
                   <CardTitle className="text-base">{task.title}</CardTitle>
                 </span>
-                <span className="text-xs text-muted-foreground">·</span>
-                <span className="text-xs text-muted-foreground">
-                  进度: {task.progress}%
-                </span>
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="text-sm text-muted-foreground py-4 text-center">
-            第{weekNumber}周还没有待办事项
+            第{weekNumber}周还没有记录
           </div>
         </CardContent>
       </Card>
@@ -197,37 +157,23 @@ function TaskWeekCard({
               <span className="text-xs text-muted-foreground">
                 <CardTitle className="text-base">{task.title}</CardTitle>
               </span>
-              <span className="text-xs text-muted-foreground">·</span>
-              <span className="text-xs text-muted-foreground">
-                进度: {task.progress}%
-              </span>
             </div>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* 指定周的 Todo 项 */}
-        <div
-          className={cn(
-            'text-sm p-3 rounded-md border',
-            weekTodo.completed
-              ? 'bg-muted/30 border-muted-foreground/20 opacity-60'
-              : 'bg-muted/50 border-border'
-          )}
-        >
-          <div className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              checked={weekTodo.completed || false}
-              onChange={handleCheckboxChange}
-              disabled={isUpdating}
-              className="mt-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <div className="flex-1">
-              {weekTodo.title && (
-                <div className="font-medium mb-1">{weekTodo.title}</div>
-              )}
-              {weekTodo.content && (
+        {/* 指定周的记录：content + comment（每条含 goal）；本周 comment 的 goal 累和 >= task.goal 即本周完成 */}
+        <div className="text-sm p-3 rounded-md border bg-muted/50 border-border">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            {task.goal != null && task.goal > 0 && (
+              <span className="text-xs text-muted-foreground">
+                本周目标 {task.goal} 分 · 已得 {weekGoalSum} 分
+                {weekCompleted && ' · 已完成'}
+              </span>
+            )}
+          </div>
+          <div>
+              {weekItem.content && (
                 <div className="text-muted-foreground markdown-content">
                   <ReactMarkdown
                     rehypePlugins={[rehypeRaw]}
@@ -311,18 +257,17 @@ function TaskWeekCard({
                       ),
                     }}
                   >
-                    {weekTodo.content}
+                    {weekItem.content}
                   </ReactMarkdown>
                 </div>
               )}
-            </div>
           </div>
         </div>
         {(commentRecords.length > 0 || showAddRecord) && (
           <div className="mt-2 space-y-2">
             {commentRecords.length > 0 && (
               <div className="space-y-1.5">
-                {commentRecords.map((record: any, index: number) => (
+                {commentRecords.map((record, index) => (
                   <div
                     key={index}
                     className="text-xs text-muted-foreground/70 p-2 bg-muted/30 rounded border border-border/50 group/record"
@@ -332,14 +277,21 @@ function TaskWeekCard({
                         <div className="whitespace-pre-wrap">
                           {record.content}
                         </div>
-                        {record.updateAt && (
-                          <div className="text-[10px] text-muted-foreground/50 mt-1">
-                            {format(
-                              new Date(record.updateAt),
-                              'yyyy-MM-dd HH:mm'
-                            )}
-                          </div>
-                        )}
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          {record.updateAt && (
+                            <span className="text-[10px] text-muted-foreground/50">
+                              {format(
+                                new Date(record.updateAt),
+                                'yyyy-MM-dd HH:mm'
+                              )}
+                            </span>
+                          )}
+                          {record.goal != null && Number(record.goal) !== 0 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              得分: {Number(record.goal)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <TooltipProvider>
                         <Tooltip
@@ -444,6 +396,15 @@ function TaskWeekCard({
                   className="text-xs min-h-[60px]"
                   disabled={isAddingRecord}
                 />
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  placeholder="得分（可选）"
+                  value={recordGoal}
+                  onChange={(e) => setRecordGoal(e.target.value)}
+                  className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-xs"
+                />
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
@@ -459,6 +420,7 @@ function TaskWeekCard({
                     onClick={() => {
                       setShowAddRecord(false)
                       setRecordInput('')
+                      setRecordGoal('')
                     }}
                     disabled={isAddingRecord}
                     className="h-7 text-xs"
@@ -510,9 +472,7 @@ export function CurrentWeekSection({
   const activeTasks = useMemo(() => {
     if (activeTaskId) {
       const activeTask = tasks.find((task) => task.id === activeTaskId)
-      return activeTask && activeTask.todo && activeTask.todo.length > 0
-        ? [activeTask]
-        : []
+      return activeTask?.week && activeTask.week.length > 0 ? [activeTask] : []
     }
     return []
   }, [tasks, activeTaskId])
@@ -530,35 +490,24 @@ export function CurrentWeekSection({
     return null
   }, [selectedWeekNumber, activeTasks])
 
-  const handleTodoUpdate = useCallback(
-    async (taskId: string, todoIndex: number, completed: boolean) => {
-      const response = await fetch('/api/tasks', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ taskId, todoIndex, completed }),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || '更新失败')
-      }
-
-      // 使用 SWR 的 mutate 来重新验证任务列表
-      await globalMutate('/api/tasks', undefined, { revalidate: true })
-    },
-    []
-  )
-
   const handleAddRecord = useCallback(
-    async (taskId: string, todoIndex: number, recordContent: string) => {
+    async (
+      taskId: string,
+      todoIndex: number,
+      recordContent: string,
+      goal?: number
+    ) => {
       const response = await fetch('/api/tasks/comment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ taskId, todoIndex, recordContent }),
+        body: JSON.stringify({
+          taskId,
+          todoIndex,
+          recordContent,
+          goal: goal ?? 0,
+        }),
       })
 
       if (!response.ok) {
@@ -619,7 +568,6 @@ export function CurrentWeekSection({
               task={task}
               weekNumber={weekNumber}
               weekStartDate={taskWeekStartDate}
-              onTodoUpdate={handleTodoUpdate}
               onAddRecord={handleAddRecord}
               onDeleteRecord={handleDeleteRecord}
             />

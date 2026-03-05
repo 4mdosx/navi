@@ -33,6 +33,7 @@
     "framer-motion": "^12.5.0",
     "howler": "^2.2.4",
     "html2canvas": "^1.4.1",
+    "@iconify/react": "^5.0.2",
     "jose": "^5.9.6",
     "kysely": "^0.28.9",
     "lucide-react": "^0.542.0",
@@ -51,8 +52,10 @@
     "zod": "^3.23.8",
     "zustand": "^5.0.3"
   },
+  "overrides": {
+    "tar": ">=7.5.8"
+  },
   "devDependencies": {
-    "@iconify/react": "^5.0.2",
     "@tailwindcss/postcss": "^4.1.7",
     "@types/bcrypt": "^5.0.2",
     "@types/better-sqlite3": "^7.6.12",
@@ -63,7 +66,7 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^9.27.0",
     "eslint-config-next": "^16.0.6",
-    "pm2": "^5.3.0",
+    "pm2": "^6.0.9",
     "tailwindcss": "^4.1.7",
     "tsx": "^4.19.2",
     "typescript": "^5"
