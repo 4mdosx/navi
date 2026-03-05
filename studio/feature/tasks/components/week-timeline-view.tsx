@@ -297,6 +297,24 @@ export function WeekTimelineView({
           const isHovered = hoveredTaskId === task.id
           const isActive = activeTaskId === task.id
 
+          const currentWeekIndexInTimeline = weeks.findIndex((w) => w.isCurrentWeek)
+          const isCurrentWeekInRange =
+            currentWeekIndexInTimeline >= 0 &&
+            weekRange.startIndex >= 0 &&
+            currentWeekIndexInTimeline >= weekRange.startIndex &&
+            currentWeekIndexInTimeline <= weekRange.endIndex
+          const currentWeekNumber = isCurrentWeekInRange
+            ? currentWeekIndexInTimeline - weekRange.startIndex + 1
+            : null
+          const currentWeekData =
+            currentWeekNumber != null ? task.week?.[currentWeekNumber - 1] : null
+          const currentWeekScore =
+            currentWeekData?.comment?.reduce(
+              (s, c: WeekCommentRecord) => s + (Number(c.goal) || 0),
+              0
+            ) ?? 0
+          const taskGoal = task.goal ?? 0
+
           return (
             <div
               key={task.id}
@@ -341,10 +359,19 @@ export function WeekTimelineView({
                   )}
                 </div>
                 {weekCount > 0 && (
-                  <div className="flex items-center gap-3 mt-3">
+                  <div className="flex flex-col gap-1 mt-3">
                     <span className="text-xs text-muted-foreground">
-                      共 {weekCount} 周
+                      {currentWeekNumber != null
+                        ? `第 ${currentWeekNumber}/${weekCount} 周`
+                        : `共 ${weekCount} 周`}
                     </span>
+                    {taskGoal > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {isCurrentWeekInRange
+                          ? `当前周 ${currentWeekScore}/${taskGoal} 分`
+                          : `目标 ${taskGoal} 分/周`}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

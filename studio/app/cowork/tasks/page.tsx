@@ -1,22 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import { TasksView } from '@/feature/tasks/components/tasks-view'
 import { useTasks } from '@/feature/tasks/hooks/use-tasks'
-import type { Task } from '@/types/tasks'
 
 export default function TasksPage() {
-  const { tasks: tasksFromDB, isError } = useTasks()
-  const [tasks, setTasks] = useState<Task[]>([])
-
-  // 当从 API 获取到数据时更新 tasks
-  useEffect(() => {
-    if (tasksFromDB && tasksFromDB.length > 0) {
-      setTasks(tasksFromDB as Task[])
-    } else if (tasksFromDB && tasksFromDB.length === 0) {
-      setTasks([])
-    }
-  }, [tasksFromDB])
+  const { tasks, isError } = useTasks()
 
   return (
     <div className="container mx-auto py-4 max-w-7xl">
@@ -30,10 +18,7 @@ export default function TasksPage() {
       )}
       <div className="grid grid-cols-12 gap-6">
         <div className="col-span-12">
-          <TasksView
-            tasks={tasks}
-            onTasksChange={setTasks}
-          />
+          <TasksView tasks={tasks ?? undefined} />
         </div>
       </div>
     </div>
