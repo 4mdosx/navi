@@ -1,5 +1,5 @@
 {
   "scripts": {
-    "studio": "cd studio && npm run dev"
+    "dev": "cd studio && npm run dev"
   }
 }

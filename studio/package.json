@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "init-db": "tsx backstage/db/init-db.ts",
-    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:start": "next build && pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop navi-studio",
     "pm2:restart": "pm2 restart navi-studio",
     "pm2:delete": "pm2 delete navi-studio",
