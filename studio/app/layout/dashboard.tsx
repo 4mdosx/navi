@@ -1,5 +1,5 @@
-import { Navbar } from '@/components/navbar'
-import { ProgressFootprint } from '@/components/progress-footprint'
+import { Navbar } from '@/app/cowork/components/navbar'
+import { ProgressFootprint } from '@/app/cowork/components/progress-footprint'
 
 export default function DashboardLayout({
   children,

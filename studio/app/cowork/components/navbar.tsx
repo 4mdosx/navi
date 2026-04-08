@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils'
 import { CheckSquare, Folder, Settings } from 'lucide-react'
 
 const navigation = [
-  { name: '仓库', href: '/cowork/repositories', icon: Folder },
   { name: '任务', href: '/cowork/tasks', icon: CheckSquare },
+  { name: '仓库', href: '/cowork/repositories', icon: Folder },
   { name: '设置', href: '/cowork/settings', icon: Settings },
 ]
 
