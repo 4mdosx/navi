@@ -1,18 +1,11 @@
-// 数据库 schema 类型定义
-// 这里需要根据实际的数据库表结构来定义
+// 数据库 schema 类型定义（Kysely）
 export interface Database {
   settings: {
     key: string
     value: string
     updatedAt: Date
   }
-  repositories: {
-    id: string
-    name: string
-    path: string
-    createdAt: Date
-  }
-  tasks: {
+  projects: {
     id: string
     title: string
     progress: number
@@ -20,11 +13,11 @@ export interface Database {
     createdAt: string
     updatedAt: string
   }
-  task_todos: {
-    taskId: string
-    todoIndex: number
-    id: string // uuid
+  project_todos: {
+    projectId: string
+    weekItemIndex: number
+    id: string
     content: string
-    comment: string // JSON: Array<{ content, updateAt, goal }>
+    comment: string
   }
 }

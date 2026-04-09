@@ -3,11 +3,10 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { CheckSquare, Folder, Settings } from 'lucide-react'
+import { LayoutDashboard, Settings } from 'lucide-react'
 
 const navigation = [
-  { name: '任务', href: '/cowork/tasks', icon: CheckSquare },
-  { name: '仓库', href: '/cowork/repositories', icon: Folder },
+  { name: '项目', href: '/cowork/projects', icon: LayoutDashboard },
   { name: '设置', href: '/cowork/settings', icon: Settings },
 ]
 
