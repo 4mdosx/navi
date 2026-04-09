@@ -174,20 +174,6 @@ function extractHashtags(content) {
 }
 
 /**
- * 从正文中提取 markdown 标题文本
- */
-function extractHeadings(content) {
-  const tags = []
-  const regex = /^#{1,6}\s+(.+)$/gmu
-  for (const match of content.matchAll(regex)) {
-    const heading = match[1].replace(/\s+#*$/, '').trim()
-    const tag = normalizeTag(heading)
-    if (tag) tags.push(tag)
-  }
-  return tags
-}
-
-/**
  * 将日报中的附件链接改为周报链接，并复制附件到周目录
  */
 function rewriteAttachmentLinks(content, weekDir, weekDirName) {
@@ -253,7 +239,6 @@ function generateWeeklyContent(weeklyNote, weekDir, weekDirName) {
     if (filenameTag) tags.add(filenameTag)
 
     for (const tag of extractHashtags(note.content)) tags.add(tag)
-    for (const headingTag of extractHeadings(note.content)) tags.add(headingTag)
 
     for (const [key, value] of Object.entries(note.frontmatter || {})) {
       if (key === 'created' || key === 'updated') continue
