@@ -32,4 +32,7 @@ export type BoxEditorDocument = {
 }
 
 /** Canvas interaction tool; stored globally in editor store. */
-export type EditorTool = 'select' | 'create' | 'layers'
+export type EditorTool = 'select' | 'create' | 'resize' | 'layers'
+
+/** Which corner is being dragged when resizing on the grid (inclusive cell). */
+export type ResizeCorner = 'nw' | 'ne' | 'sw' | 'se'

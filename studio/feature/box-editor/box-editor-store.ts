@@ -5,6 +5,7 @@ import type { BoxEditorDocument, EditorTool, GridRect } from './types'
 import {
   addLayer,
   commitBoxPlacement,
+  commitBoxResize,
   createBoxFromMarquee,
   createInitialDocument,
   moveLayerOrder,
@@ -46,6 +47,7 @@ type BoxEditorState = {
     parentId: string | null,
     absTopLeft: { x: number; y: number }
   ) => boolean
+  commitResize: (boxId: string, absRect: GridRect) => boolean
   setLabel: (boxId: string, label: string) => void
   addLayerAction: () => void
   removeLayerAction: (layerId: string) => void
@@ -115,6 +117,14 @@ export const useBoxEditorStore = create<BoxEditorState>((set, get) => {
     commitPlacement: (boxId, parentId, absTopLeft) => {
       const { document: doc } = get()
       const next = commitBoxPlacement(doc, boxId, parentId, absTopLeft)
+      if (!next) return false
+      set({ document: next })
+      return true
+    },
+
+    commitResize: (boxId, absRect) => {
+      const { document: doc } = get()
+      const next = commitBoxResize(doc, boxId, absRect)
       if (!next) return false
       set({ document: next })
       return true

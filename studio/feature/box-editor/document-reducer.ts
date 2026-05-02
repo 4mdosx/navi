@@ -90,6 +90,49 @@ export function commitBoxPlacement(
   }
 }
 
+/** Resize in absolute grid space while keeping the node's current parent. */
+export function commitBoxResize(
+  doc: BoxEditorDocument,
+  boxId: string,
+  absRect: GridRect
+): BoxEditorDocument | null {
+  const node = doc.boxes[boxId]
+  if (!node) return null
+  const parentId = node.parentId
+
+  let newRel: { x: number; y: number }
+  if (parentId == null) {
+    newRel = { x: absRect.x, y: absRect.y }
+  } else {
+    const pAbs = getAbsoluteRect(doc, parentId)
+    if (!pAbs) return null
+    newRel = absToRelative(absRect, pAbs)
+  }
+
+  if (
+    !validatePlacedNode(doc, boxId, parentId, newRel, {
+      w: absRect.w,
+      h: absRect.h,
+    })
+  ) {
+    return null
+  }
+
+  return {
+    ...doc,
+    boxes: {
+      ...doc.boxes,
+      [boxId]: {
+        ...node,
+        x: newRel.x,
+        y: newRel.y,
+        w: absRect.w,
+        h: absRect.h,
+      },
+    },
+  }
+}
+
 export function updateBoxLabel(
   doc: BoxEditorDocument,
   boxId: string,

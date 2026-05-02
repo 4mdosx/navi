@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import type { BoxNode } from '../types'
+import type { BoxNode, ResizeCorner } from '../types'
 
 export type BoxViewProps = {
   node: BoxNode
@@ -14,6 +14,15 @@ export type BoxViewProps = {
   dragPlacement?: 'neutral' | 'ok' | 'bad'
   /** When false, box is only clickable (e.g. create tool); no grab cursor. */
   dragEnabled?: boolean
+  /** Show four corner hit targets for the resize tool (typically when selected). */
+  showResizeHandles?: boolean
+  onResizeHandlePointerDown?: (
+    corner: ResizeCorner,
+    e: React.PointerEvent
+  ) => void
+  onResizeHandlePointerMove?: (e: React.PointerEvent) => void
+  onResizeHandlePointerUp?: (e: React.PointerEvent) => void
+  onResizeHandlePointerCancel?: (e: React.PointerEvent) => void
   className?: string
   onPointerDown: (e: React.PointerEvent) => void
   onPointerMove?: (e: React.PointerEvent) => void
@@ -30,6 +39,11 @@ export function BoxView({
   dragging,
   dragPlacement = 'neutral',
   dragEnabled = true,
+  showResizeHandles = false,
+  onResizeHandlePointerDown,
+  onResizeHandlePointerMove,
+  onResizeHandlePointerUp,
+  onResizeHandlePointerCancel,
   className,
   onPointerDown,
   onPointerMove,
@@ -83,6 +97,38 @@ export function BoxView({
       <span className="mt-auto text-[10px] tabular-nums text-slate-400">
         {abs.w}×{abs.h}
       </span>
+      {showResizeHandles &&
+        onResizeHandlePointerDown &&
+        onResizeHandlePointerMove &&
+        onResizeHandlePointerUp && (
+        <>
+          {(
+            [
+              ['nw', '-left-1.5 -top-1.5', 'nwse-resize'],
+              ['ne', '-right-1.5 -top-1.5', 'nesw-resize'],
+              ['sw', '-left-1.5 -bottom-1.5', 'nesw-resize'],
+              ['se', '-right-1.5 -bottom-1.5', 'nwse-resize'],
+            ] as const
+          ).map(([corner, pos, cursor]) => (
+            <span
+              key={corner}
+              role="presentation"
+              data-resize-handle={corner}
+              className={`absolute z-20 h-3 w-3 rounded-sm border border-sky-600 bg-white shadow-sm touch-none ${pos}`}
+              style={{ cursor }}
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                onResizeHandlePointerDown(corner, e)
+              }}
+              onPointerMove={onResizeHandlePointerMove}
+              onPointerUp={onResizeHandlePointerUp}
+              onPointerCancel={
+                onResizeHandlePointerCancel ?? onResizeHandlePointerUp
+              }
+            />
+          ))}
+        </>
+      )}
     </div>
   )
 }

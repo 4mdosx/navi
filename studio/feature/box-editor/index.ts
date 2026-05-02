@@ -14,6 +14,7 @@ export type {
   Layer,
   GridRect,
   EditorTool,
+  ResizeCorner,
 } from './types'
 export { parseDocument, serializeDocument, boxEditorDocumentSchema } from './schema'
 export {
@@ -26,4 +27,5 @@ export {
   createInitialDocument,
   createBoxFromMarquee,
   commitBoxPlacement,
+  commitBoxResize,
 } from './document-reducer'

@@ -12,6 +12,7 @@ import {
   Layers2,
   MousePointer2,
   Plus,
+  Scaling,
   SquarePlus,
   Trash2,
   Upload,
@@ -72,10 +73,12 @@ export function BoxEditor({ className }: { className?: string }) {
       let tool: EditorTool | null = null
       if (key === 'v') tool = 'select'
       else if (key === 'r') tool = 'create'
+      else if (key === 's') tool = 'resize'
       else if (key === 'l') tool = 'layers'
       else if (e.key === '1') tool = 'select'
       else if (e.key === '2') tool = 'create'
-      else if (e.key === '3') tool = 'layers'
+      else if (e.key === '3') tool = 'resize'
+      else if (e.key === '4') tool = 'layers'
 
       if (tool) {
         e.preventDefault()
@@ -140,9 +143,13 @@ export function BoxEditor({ className }: { className?: string }) {
             </kbd>{' '}
             新建、
             <kbd className="rounded border border-slate-200 bg-slate-100 px-1 font-mono text-[10px]">
+              S
+            </kbd>{' '}
+            缩放、
+            <kbd className="rounded border border-slate-200 bg-slate-100 px-1 font-mono text-[10px]">
               L
             </kbd>{' '}
-            图层；数字键 1–3 相同。
+            图层；数字键 1–4 对应选择 / 新建 / 缩放 / 图层。
           </p>
         </div>
       </div>
@@ -179,13 +186,24 @@ export function BoxEditor({ className }: { className?: string }) {
           <Button
             type="button"
             size="sm"
+            {...boxEditorToolbarToolButtonProps(editorTool === 'resize')}
+            onClick={() => setEditorTool('resize')}
+          >
+            <Scaling className="h-4 w-4 shrink-0" />
+            缩放
+            <Kbd>S</Kbd>
+            <span className="sr-only">或数字键 3</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
             {...boxEditorToolbarToolButtonProps(editorTool === 'layers')}
             onClick={() => setEditorTool('layers')}
           >
             <Layers2 className="h-4 w-4 shrink-0" />
             图层
             <Kbd>L</Kbd>
-            <span className="sr-only">或数字键 3</span>
+            <span className="sr-only">或数字键 4</span>
           </Button>
         </div>
       </div>

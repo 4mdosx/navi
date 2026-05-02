@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useBoxEditorStore, GRID_CELLS_H, GRID_CELLS_W } from '../box-editor-store'
 import {
+  absToRelative,
   clampAbsRectToGrid,
   getAbsoluteRect,
   hitTestTopMost,
   validatePlacedNode,
 } from '../layout'
-import type { BoxEditorDocument, GridRect } from '../types'
+import type { BoxEditorDocument, GridRect, ResizeCorner } from '../types'
 import { BoxView } from './box-view'
 
 function sortLayers(doc: BoxEditorDocument) {
@@ -88,6 +89,36 @@ type ViewPanDrag = {
   originPanY: number
 }
 
+type ResizeDragState = {
+  pointerId: number
+  boxId: string
+  corner: ResizeCorner
+  startAbs: GridRect
+  previewAbs: GridRect
+  valid: boolean
+}
+
+function absRectFromResizeDrag(
+  start: GridRect,
+  corner: ResizeCorner,
+  gx: number,
+  gy: number
+): GridRect {
+  const { x, y, w, h } = start
+  switch (corner) {
+    case 'se':
+      return normalizeMarquee(x, y, gx, gy)
+    case 'nw':
+      return normalizeMarquee(x + w - 1, y + h - 1, gx, gy)
+    case 'ne':
+      return normalizeMarquee(x, y + h - 1, gx, gy)
+    case 'sw':
+      return normalizeMarquee(x + w - 1, y, gx, gy)
+    default:
+      return start
+  }
+}
+
 export function BoxEditorCanvas() {
   const panPlateRef = useRef<HTMLDivElement>(null)
 
@@ -99,6 +130,7 @@ export function BoxEditorCanvas() {
   const editorTool = useBoxEditorStore((s) => s.editorTool)
   const createMarqueeBox = useBoxEditorStore((s) => s.createMarqueeBox)
   const commitPlacement = useBoxEditorStore((s) => s.commitPlacement)
+  const commitResize = useBoxEditorStore((s) => s.commitResize)
   const viewPanX = useBoxEditorStore((s) => s.viewPanX)
   const viewPanY = useBoxEditorStore((s) => s.viewPanY)
   const setViewPan = useBoxEditorStore((s) => s.setViewPan)
@@ -109,9 +141,14 @@ export function BoxEditorCanvas() {
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
   const [dropValid, setDropValid] = useState<boolean>(false)
   const [viewPanDrag, setViewPanDrag] = useState<ViewPanDrag | null>(null)
+  const [resize, setResize] = useState<ResizeDragState | null>(null)
+  /** Latest resize interaction (synced on down / move) so pointerup can commit without stale closure. */
+  const resizeLiveRef = useRef<ResizeDragState | null>(null)
 
   useEffect(() => {
     setMarquee(null)
+    setResize(null)
+    resizeLiveRef.current = null
   }, [editorTool])
 
   const gridWpx = GRID_CELLS_W * cellSizePx
@@ -273,6 +310,79 @@ export function BoxEditorCanvas() {
     const { parentId, valid } = resolveDropTarget(boxId, abs)
     setDropTargetId(parentId)
     setDropValid(valid)
+  }
+
+  const onResizeHandlePointerDown = (
+    boxId: string,
+    corner: ResizeCorner,
+    e: React.PointerEvent
+  ) => {
+    if (!interactive || !gridHitTarget()) return
+    if (editorTool !== 'resize') return
+    if (e.button !== 0) return
+    const docSnap = structuredClone(
+      useBoxEditorStore.getState().document
+    ) as BoxEditorDocument
+    const node = docSnap.boxes[boxId]
+    if (!node || node.layerId !== activeLayerId) return
+    const abs = getAbsoluteRect(docSnap, boxId)
+    if (!abs) return
+    setSelectedBoxId(boxId)
+    const next: ResizeDragState = {
+      pointerId: e.pointerId,
+      boxId,
+      corner,
+      startAbs: { ...abs },
+      previewAbs: { ...abs },
+      valid: true,
+    }
+    resizeLiveRef.current = next
+    setResize(next)
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  const onResizeHandlePointerMove = (e: React.PointerEvent) => {
+    setResize((r) => {
+      if (!r || !gridHitTarget()) return r
+      if (e.pointerId !== r.pointerId) return r
+      const g = clientToGrid(gridHitTarget()!, e.clientX, e.clientY, cellSizePx)
+      if (!g) return r
+      const raw = absRectFromResizeDrag(r.startAbs, r.corner, g.gx, g.gy)
+      const abs = clampAbsRectToGrid(raw, GRID_CELLS_W, GRID_CELLS_H)
+      const doc = useBoxEditorStore.getState().document
+      const node = doc.boxes[r.boxId]
+      if (!node) return r
+      const parentId = node.parentId
+      let rel: { x: number; y: number }
+      if (parentId == null) {
+        rel = { x: abs.x, y: abs.y }
+      } else {
+        const pAbs = getAbsoluteRect(doc, parentId)
+        if (!pAbs) return r
+        rel = absToRelative(abs, pAbs)
+      }
+      const ok = validatePlacedNode(doc, r.boxId, parentId, rel, {
+        w: abs.w,
+        h: abs.h,
+      })
+      const updated = { ...r, previewAbs: abs, valid: ok }
+      resizeLiveRef.current = updated
+      return updated
+    })
+  }
+
+  const onResizeHandlePointerUp = (e: React.PointerEvent) => {
+    const r = resizeLiveRef.current
+    if (r && e.pointerId === r.pointerId && r.valid) {
+      commitResize(r.boxId, r.previewAbs)
+    }
+    resizeLiveRef.current = null
+    setResize(null)
+    try {
+      ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+    } catch {
+      /* noop */
+    }
   }
 
   const onBoxPointerUp = (boxId: string, e: React.PointerEvent) => {
@@ -454,7 +564,8 @@ export function BoxEditorCanvas() {
                     className={cn(
                       'absolute inset-0 z-0',
                       editorTool === 'create' && 'cursor-crosshair',
-                      editorTool === 'select' && 'cursor-default'
+                      (editorTool === 'select' || editorTool === 'resize') &&
+                        'cursor-default'
                     )}
                     onPointerDown={onWorldPointerDown}
                     onPointerMove={onWorldPointerMove}
@@ -466,8 +577,13 @@ export function BoxEditorCanvas() {
                   const abs0 =
                     getAbsoluteRect(document, b.id) ?? toFallbackAbs(b)
                   const isDragged = drag?.boxId === b.id
+                  const isResizing = resize?.boxId === b.id
                   const abs =
-                    isDragged && previewAbs ? previewAbs : abs0
+                    isDragged && previewAbs
+                      ? previewAbs
+                      : isResizing
+                        ? resize.previewAbs
+                        : abs0
                   const dropHighlight =
                     dropTargetId === b.id
                       ? dropValid
@@ -482,15 +598,28 @@ export function BoxEditorCanvas() {
                       abs={abs}
                       selected={selectedBoxId === b.id}
                       dropHighlight={dropHighlight}
-                      dragging={isDragged}
+                      dragging={isDragged || isResizing}
                       dragEnabled={editorTool === 'select'}
                       dragPlacement={
-                        isDragged
-                          ? dropValid
+                        isResizing
+                          ? resize.valid
                             ? 'ok'
                             : 'bad'
-                          : 'neutral'
+                          : isDragged
+                            ? dropValid
+                              ? 'ok'
+                              : 'bad'
+                            : 'neutral'
                       }
+                      showResizeHandles={
+                        editorTool === 'resize' && selectedBoxId === b.id
+                      }
+                      onResizeHandlePointerDown={(corner, ev) =>
+                        onResizeHandlePointerDown(b.id, corner, ev)
+                      }
+                      onResizeHandlePointerMove={onResizeHandlePointerMove}
+                      onResizeHandlePointerUp={onResizeHandlePointerUp}
+                      onResizeHandlePointerCancel={onResizeHandlePointerUp}
                       onPointerDown={(e) => onBoxPointerDown(b.id, e)}
                       onPointerMove={(e) => onBoxPointerMove(b.id, e)}
                       onPointerUp={(e) => onBoxPointerUp(b.id, e)}
