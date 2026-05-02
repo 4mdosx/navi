@@ -8,6 +8,7 @@ import {
   clampAbsRectToGrid,
   getAbsoluteRect,
   hitTestTopMost,
+  isAncestor,
   validatePlacedNode,
 } from '../layout'
 import type { BoxEditorDocument, GridRect, ResizeCorner } from '../types'
@@ -208,6 +209,14 @@ export function BoxEditorCanvas() {
   }, [activeLayerId])
 
   const gridHitTarget = () => panPlateRef.current
+
+  /** 选择工具拖拽时，被拖 box 相对快照的绝对位移（用于子树一起平移预览） */
+  const dragPreviewDelta = useMemo(() => {
+    if (!drag || !previewAbs) return null
+    const base = getAbsoluteRect(drag.docSnapshot, drag.boxId)
+    if (!base) return null
+    return { dx: previewAbs.x - base.x, dy: previewAbs.y - base.y }
+  }, [drag, previewAbs])
 
   const onWorldPointerDown = (e: React.PointerEvent) => {
     if (!interactive || !gridHitTarget()) return
@@ -590,12 +599,28 @@ export function BoxEditorCanvas() {
                     getAbsoluteRect(document, b.id) ?? toFallbackAbs(b)
                   const isDragged = drag?.boxId === b.id
                   const isResizing = resize?.boxId === b.id
-                  const abs =
-                    isDragged && previewAbs
-                      ? previewAbs
-                      : isResizing
-                        ? resize.previewAbs
-                        : abs0
+                  const isDragDescendant =
+                    !!(
+                      drag &&
+                      dragPreviewDelta &&
+                      !isDragged &&
+                      isAncestor(drag.docSnapshot, drag.boxId, b.id)
+                    )
+                  let abs: GridRect = abs0
+                  if (isDragged && previewAbs) {
+                    abs = previewAbs
+                  } else if (isResizing) {
+                    abs = resize.previewAbs
+                  } else if (isDragDescendant && drag) {
+                    const baseAbs =
+                      getAbsoluteRect(drag.docSnapshot, b.id) ??
+                      toFallbackAbs(b)
+                    abs = {
+                      ...baseAbs,
+                      x: baseAbs.x + dragPreviewDelta!.dx,
+                      y: baseAbs.y + dragPreviewDelta!.dy,
+                    }
+                  }
                   const dropHighlight =
                     dropTargetId === b.id
                       ? dropValid
@@ -610,14 +635,16 @@ export function BoxEditorCanvas() {
                       abs={abs}
                       selected={selectedBoxId === b.id}
                       dropHighlight={dropHighlight}
-                      dragging={isDragged || isResizing}
+                      dragging={
+                        isDragged || isResizing || isDragDescendant
+                      }
                       dragEnabled={editorTool === 'select'}
                       dragPlacement={
                         isResizing
                           ? resize.valid
                             ? 'ok'
                             : 'bad'
-                          : isDragged
+                          : isDragged || isDragDescendant
                             ? dropValid
                               ? 'ok'
                               : 'bad'
