@@ -16,6 +16,8 @@ export type { ScheduleBlock } from './types'
 
 export interface CurriculumScheduleProps {
   currentDate: Date
+  /** 用于高亮「今天 + 当前小时」格；不传则不显示时间高亮 */
+  current?: Date
   startHour: number
   endHour: number
   locale?: string
@@ -46,6 +48,14 @@ function formatDayHeader(date: Date, locale?: string): string {
 }
 
 const CELL_MIN_HEIGHT = `${CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM}rem`
+
+function sameLocalCalendarDate(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
+}
 
 type DropPreview = {
   dayIndex: number
@@ -182,6 +192,7 @@ function ScheduleBlocksOverlay({
 /** Weekly grid: columns Sun→Sat, rows per hour between startHour and endHour. */
 export function CurriculumSchedule({
   currentDate,
+  current,
   startHour,
   endHour,
   locale,
@@ -195,6 +206,10 @@ export function CurriculumSchedule({
   const weekDays = getWeekDaysFromSunday(sunday)
   const hours = getHourRange(startHour, endHour)
   const rowCount = hours.length
+  const todayInThisWeek =
+    current != null &&
+    weekDays.some((d) => sameLocalCalendarDate(d, current))
+  const currentHour = current?.getHours()
   const [placedDragPayload, setPlacedDragPayload] =
     useState<CourseDragPayload | null>(null)
   const [dropPreview, setDropPreview] = useState<DropPreview | null>(null)
@@ -254,15 +269,26 @@ export function CurriculumSchedule({
             className="sticky left-0 top-0 z-30 shrink-0 border-b border-neutral-200 bg-background px-1 py-2 text-xs text-neutral-500 dark:border-neutral-800"
             style={{ minHeight: CELL_MIN_HEIGHT }}
           />
-          {hours.map((h) => (
-            <div
-              key={h}
-              className="sticky left-0 z-20 flex shrink-0 items-start justify-end border-b border-neutral-200 bg-background px-1 py-1 text-xs tabular-nums text-neutral-500 dark:border-neutral-800"
-              style={{ minHeight: CELL_MIN_HEIGHT }}
-            >
-              {formatHourLabel(h, locale)}
-            </div>
-          ))}
+          {hours.map((h) => {
+            const isNowHourRow =
+              todayInThisWeek &&
+              currentHour != null &&
+              h === currentHour
+            return (
+              <div
+                key={h}
+                className={
+                  'sticky left-0 z-20 flex shrink-0 items-start justify-end border-b border-neutral-200 bg-background px-1 py-1 text-xs tabular-nums dark:border-neutral-800 ' +
+                  (isNowHourRow
+                    ? 'border-l-2 border-l-blue-600 pl-0.5 font-medium text-blue-700 dark:border-l-blue-400 dark:text-blue-300'
+                    : 'text-neutral-500')
+                }
+                style={{ minHeight: CELL_MIN_HEIGHT }}
+              >
+                {formatHourLabel(h, locale)}
+              </div>
+            )
+          })}
         </div>
 
         <div
@@ -281,23 +307,44 @@ export function CurriculumSchedule({
                 className="flex min-w-0 flex-1 flex-col border-r border-neutral-200 last:border-r-0 dark:border-neutral-800"
               >
                 <div
-                  className="sticky top-0 z-20 shrink-0 border-b border-neutral-200 bg-background px-1 py-2 text-center text-xs font-medium dark:border-neutral-800"
+                  className={
+                    'sticky top-0 z-20 shrink-0 border-b border-neutral-200 bg-background px-1 py-2 text-center text-xs font-medium dark:border-neutral-800 ' +
+                    (current != null && sameLocalCalendarDate(day, current)
+                      ? 'border-b-2 border-b-blue-600 text-blue-800 dark:border-b-blue-400 dark:text-blue-200'
+                      : '')
+                  }
                   style={{ minHeight: CELL_MIN_HEIGHT }}
                 >
                   {formatDayHeader(day, locale)}
                 </div>
-                {hours.map((h, rowIndex) => (
-                  <div
-                    key={h}
-                    role="presentation"
-                    className="shrink-0 border-b border-neutral-200 px-0.5 py-0.5 dark:border-neutral-800"
-                    style={{ minHeight: CELL_MIN_HEIGHT }}
-                    onDragOver={(ev) => handleDragOver(ev, dayIndex, rowIndex)}
-                    onDrop={(ev) => handleDrop(ev, dayIndex, rowIndex)}
-                  >
-                    <div className="h-full min-h-[3.5rem] rounded-sm bg-neutral-50 dark:bg-neutral-900/40" />
-                  </div>
-                ))}
+                {hours.map((h, rowIndex) => {
+                  const isCurrentSlot =
+                    current != null &&
+                    sameLocalCalendarDate(day, current) &&
+                    currentHour != null &&
+                    h === currentHour
+                  return (
+                    <div
+                      key={h}
+                      role="presentation"
+                      className={
+                        'shrink-0 border-b border-neutral-200 px-0.5 py-0.5 dark:border-neutral-800'
+                      }
+                      style={{ minHeight: CELL_MIN_HEIGHT }}
+                      onDragOver={(ev) => handleDragOver(ev, dayIndex, rowIndex)}
+                      onDrop={(ev) => handleDrop(ev, dayIndex, rowIndex)}
+                    >
+                      <div
+                        className={
+                          'h-full min-h-[3.5rem] rounded-sm bg-neutral-50 dark:bg-neutral-900/40 ' +
+                          (isCurrentSlot
+                            ? 'border-2 border-blue-500 dark:border-blue-400'
+                            : '')
+                        }
+                      />
+                    </div>
+                  )
+                })}
               </div>
             ))}
           </div>

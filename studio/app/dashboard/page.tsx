@@ -1,12 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM,
   CurriculumSchedule,
   type CourseDragPayload,
   curriculumScheduleDayColumnMinWidthPx,
-  getHourRange,
   getSundayOfWeekContaining,
   type ScheduleBlock,
 } from '@/feature/curriculum-schedule'
@@ -84,6 +83,12 @@ function PendingCourseCard({
 
 export default function DashboardScheduleTestPage() {
   const currentDate = useMemo(() => new Date(), [])
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   const pending = useScheduleStore((s) => s.pending)
   const placed = useScheduleStore((s) => s.placed)
@@ -122,10 +127,6 @@ export default function DashboardScheduleTestPage() {
     [movePlacedBackToPending, setDraggingPayload]
   )
 
-  const hourRows = useMemo(
-    () => getHourRange(SCHEDULE_START_HOUR, SCHEDULE_END_HOUR).length,
-    []
-  )
   const yearWeekLabel = useMemo(() => getYearWeekLabel(currentDate), [currentDate])
 
   return (
@@ -136,6 +137,7 @@ export default function DashboardScheduleTestPage() {
           <CurriculumSchedule
             className="min-h-0 flex-1"
             currentDate={currentDate}
+            current={now}
             startHour={SCHEDULE_START_HOUR}
             endHour={SCHEDULE_END_HOUR}
             locale="zh-CN"
