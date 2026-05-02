@@ -127,6 +127,7 @@ export function BoxEditorCanvas() {
   const cellSizePx = useBoxEditorStore((s) => s.cellSizePx)
   const selectedBoxId = useBoxEditorStore((s) => s.selectedBoxId)
   const setSelectedBoxId = useBoxEditorStore((s) => s.setSelectedBoxId)
+  const setEditorTool = useBoxEditorStore((s) => s.setEditorTool)
   const editorTool = useBoxEditorStore((s) => s.editorTool)
   const createMarqueeBox = useBoxEditorStore((s) => s.createMarqueeBox)
   const commitPlacement = useBoxEditorStore((s) => s.commitPlacement)
@@ -258,6 +259,17 @@ export function BoxEditorCanvas() {
         /* noop */
       }
     }
+  }
+
+  const onBoxDoubleClick = (boxId: string, e: React.MouseEvent) => {
+    if (!interactive) return
+    e.stopPropagation()
+    e.preventDefault()
+    const doc = useBoxEditorStore.getState().document
+    const node = doc.boxes[boxId]
+    if (!node || node.layerId !== activeLayerId) return
+    setSelectedBoxId(boxId)
+    setEditorTool('resize')
   }
 
   const onBoxPointerDown = (boxId: string, e: React.PointerEvent) => {
@@ -614,12 +626,16 @@ export function BoxEditorCanvas() {
                       showResizeHandles={
                         editorTool === 'resize' && selectedBoxId === b.id
                       }
+                      showSize={
+                        editorTool === 'resize' && selectedBoxId === b.id
+                      }
                       onResizeHandlePointerDown={(corner, ev) =>
                         onResizeHandlePointerDown(b.id, corner, ev)
                       }
                       onResizeHandlePointerMove={onResizeHandlePointerMove}
                       onResizeHandlePointerUp={onResizeHandlePointerUp}
                       onResizeHandlePointerCancel={onResizeHandlePointerUp}
+                      onDoubleClick={(e) => onBoxDoubleClick(b.id, e)}
                       onPointerDown={(e) => onBoxPointerDown(b.id, e)}
                       onPointerMove={(e) => onBoxPointerMove(b.id, e)}
                       onPointerUp={(e) => onBoxPointerUp(b.id, e)}

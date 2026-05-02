@@ -325,6 +325,13 @@ export function BoxEditor({ className }: { className?: string }) {
                     {selectedBox.id.slice(0, 8)}…
                   </code>
                 </div>
+                <div className="text-xs text-slate-500">
+                  尺寸{' '}
+                  <span className="font-mono tabular-nums text-slate-700">
+                    {selectedBox.w}×{selectedBox.h}
+                  </span>
+                  <span className="text-slate-400"> 格</span>
+                </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="box-label">Label</Label>
                   <Input

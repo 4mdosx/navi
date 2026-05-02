@@ -16,6 +16,8 @@ export type BoxViewProps = {
   dragEnabled?: boolean
   /** Show four corner hit targets for the resize tool (typically when selected). */
   showResizeHandles?: boolean
+  /** Show w×h in grid cells (e.g. only in resize tool on the selected box). */
+  showSize?: boolean
   onResizeHandlePointerDown?: (
     corner: ResizeCorner,
     e: React.PointerEvent
@@ -24,6 +26,7 @@ export type BoxViewProps = {
   onResizeHandlePointerUp?: (e: React.PointerEvent) => void
   onResizeHandlePointerCancel?: (e: React.PointerEvent) => void
   className?: string
+  onDoubleClick?: (e: React.MouseEvent) => void
   onPointerDown: (e: React.PointerEvent) => void
   onPointerMove?: (e: React.PointerEvent) => void
   onPointerUp?: (e: React.PointerEvent) => void
@@ -40,11 +43,13 @@ export function BoxView({
   dragPlacement = 'neutral',
   dragEnabled = true,
   showResizeHandles = false,
+  showSize = false,
   onResizeHandlePointerDown,
   onResizeHandlePointerMove,
   onResizeHandlePointerUp,
   onResizeHandlePointerCancel,
   className,
+  onDoubleClick,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -60,6 +65,7 @@ export function BoxView({
       role="button"
       tabIndex={0}
       data-box-id={node.id}
+      onDoubleClick={onDoubleClick}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -94,9 +100,11 @@ export function BoxView({
       <span className="truncate text-xs font-semibold tracking-tight text-slate-700">
         {node.label}
       </span>
-      <span className="mt-auto text-[10px] tabular-nums text-slate-400">
-        {abs.w}×{abs.h}
-      </span>
+      {showSize && (
+        <span className="mt-auto text-[10px] tabular-nums text-slate-400">
+          {abs.w}×{abs.h}
+        </span>
+      )}
       {showResizeHandles &&
         onResizeHandlePointerDown &&
         onResizeHandlePointerMove &&
