@@ -14,6 +14,10 @@ export type BoxViewProps = {
   dragPlacement?: 'neutral' | 'ok' | 'bad'
   /** When false, box is only clickable (e.g. create tool); no grab cursor. */
   dragEnabled?: boolean
+  /** 新建工具：正在从该 box 内拖拽选区时高亮宿主 */
+  createMarqueeHostActive?: boolean
+  /** 新建工具激活时，整块区域使用十字光标 */
+  createTool?: boolean
   /** Show four corner hit targets for the resize tool (typically when selected). */
   showResizeHandles?: boolean
   /** Show w×h in grid cells (e.g. only in resize tool on the selected box). */
@@ -42,6 +46,8 @@ export function BoxView({
   dragging,
   dragPlacement = 'neutral',
   dragEnabled = true,
+  createMarqueeHostActive = false,
+  createTool = false,
   showResizeHandles = false,
   showSize = false,
   onResizeHandlePointerDown,
@@ -75,12 +81,19 @@ export function BoxView({
         className,
         'hover:shadow-md focus-visible:ring-2 focus-visible:ring-sky-400',
         selected && 'ring-2 ring-sky-500',
+        createMarqueeHostActive &&
+          'z-[15] ring-2 ring-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.35)]',
         dropHighlight === 'valid' &&
           'border-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.35)]',
         dropHighlight === 'invalid' &&
           'border-rose-500 shadow-[0_0_0_3px_rgba(244,63,94,0.35)]',
         dragging && 'cursor-grabbing opacity-90',
-        !dragging && (dragEnabled ? 'cursor-grab' : 'cursor-pointer'),
+        !dragging &&
+          (createTool
+            ? 'cursor-crosshair'
+            : dragEnabled
+              ? 'cursor-grab'
+              : 'cursor-pointer'),
         dragging && dragPlacement === 'ok' && 'ring-2 ring-emerald-400/80',
         dragging && dragPlacement === 'bad' && 'ring-2 ring-rose-500/90'
       )}

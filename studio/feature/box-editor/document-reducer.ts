@@ -3,6 +3,7 @@ import type { BoxEditorDocument, BoxNode, GridRect, Layer } from './types'
 import {
   absToRelative,
   getAbsoluteRect,
+  intersectAbsRects,
   validateExistingNode,
   validatePlacedNode,
 } from './layout'
@@ -19,21 +20,45 @@ export function createInitialDocument(): BoxEditorDocument {
 export function createBoxFromMarquee(
   doc: BoxEditorDocument,
   layerId: string,
-  rect: GridRect,
-  label = 'Box'
+  rectAbs: GridRect,
+  label = 'Box',
+  hostParentId: string | null = null
 ): BoxEditorDocument | null {
   if (!doc.layers.some((l) => l.id === layerId)) return null
   const id = nanoid()
-  const node: BoxNode = {
-    id,
-    layerId,
-    label,
-    parentId: null,
-    x: rect.x,
-    y: rect.y,
-    w: rect.w,
-    h: rect.h,
+
+  let node: BoxNode
+  if (hostParentId) {
+    const parent = doc.boxes[hostParentId]
+    if (!parent || parent.layerId !== layerId) return null
+    const pAbs = getAbsoluteRect(doc, hostParentId)
+    if (!pAbs) return null
+    const inter = intersectAbsRects(rectAbs, pAbs)
+    if (!inter) return null
+    const rel = absToRelative(inter, pAbs)
+    node = {
+      id,
+      layerId,
+      label,
+      parentId: hostParentId,
+      x: rel.x,
+      y: rel.y,
+      w: inter.w,
+      h: inter.h,
+    }
+  } else {
+    node = {
+      id,
+      layerId,
+      label,
+      parentId: null,
+      x: rectAbs.x,
+      y: rectAbs.y,
+      w: rectAbs.w,
+      h: rectAbs.h,
+    }
   }
+
   const draft: BoxEditorDocument = {
     ...doc,
     boxes: { ...doc.boxes, [id]: node },

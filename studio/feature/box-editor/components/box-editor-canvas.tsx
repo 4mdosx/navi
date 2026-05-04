@@ -9,6 +9,8 @@ import {
   getAbsoluteRect,
   hitTestTopMost,
   isAncestor,
+  previewMarqueeNewBox,
+  rectFromDiagonalCells,
   validatePlacedNode,
 } from '../layout'
 import type { BoxEditorDocument, GridRect, ResizeCorner } from '../types'
@@ -48,30 +50,14 @@ function clientToGrid(
   }
 }
 
-function normalizeMarquee(
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number
-): GridRect {
-  const x0 = Math.min(ax, bx)
-  const y0 = Math.min(ay, by)
-  const x1 = Math.max(ax, bx)
-  const y1 = Math.max(ay, by)
-  return {
-    x: x0,
-    y: y0,
-    w: Math.max(1, x1 - x0 + 1),
-    h: Math.max(1, y1 - y0 + 1),
-  }
-}
-
 type MarqueeState = {
   pointerId: number
   startGx: number
   startGy: number
   curGx: number
   curGy: number
+  /** 从某 box 内开始拖拽时，新建为该 box 的子 box，选区限制在父级内 */
+  hostParentId: string | null
 }
 
 type DragState = {
@@ -108,13 +94,13 @@ function absRectFromResizeDrag(
   const { x, y, w, h } = start
   switch (corner) {
     case 'se':
-      return normalizeMarquee(x, y, gx, gy)
+      return rectFromDiagonalCells(x, y, gx, gy)
     case 'nw':
-      return normalizeMarquee(x + w - 1, y + h - 1, gx, gy)
+      return rectFromDiagonalCells(x + w - 1, y + h - 1, gx, gy)
     case 'ne':
-      return normalizeMarquee(x, y + h - 1, gx, gy)
+      return rectFromDiagonalCells(x, y + h - 1, gx, gy)
     case 'sw':
-      return normalizeMarquee(x + w - 1, y, gx, gy)
+      return rectFromDiagonalCells(x + w - 1, y, gx, gy)
     default:
       return start
   }
@@ -218,6 +204,21 @@ export function BoxEditorCanvas() {
     return { dx: previewAbs.x - base.x, dy: previewAbs.y - base.y }
   }, [drag, previewAbs])
 
+  const marqueeCreatePreview = useMemo(() => {
+    if (editorTool !== 'create' || !marquee) return null
+    return previewMarqueeNewBox(
+      document,
+      activeLayerId,
+      marquee.hostParentId,
+      marquee.startGx,
+      marquee.startGy,
+      marquee.curGx,
+      marquee.curGy,
+      GRID_CELLS_W,
+      GRID_CELLS_H
+    )
+  }, [editorTool, marquee, document, activeLayerId])
+
   const onWorldPointerDown = (e: React.PointerEvent) => {
     if (!interactive || !gridHitTarget()) return
     if (e.button !== 0) return
@@ -237,6 +238,7 @@ export function BoxEditorCanvas() {
       startGy: g.gy,
       curGx: g.gx,
       curGy: g.gy,
+      hostParentId: null,
     })
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     setSelectedBoxId(null)
@@ -253,14 +255,23 @@ export function BoxEditorCanvas() {
   const onWorldPointerUp = (e: React.PointerEvent) => {
     if (!gridHitTarget()) return
     if (marquee && e.pointerId === marquee.pointerId) {
-      const rect = normalizeMarquee(
-        marquee.startGx,
-        marquee.startGy,
-        marquee.curGx,
-        marquee.curGy
-      )
-      const clamped = clampAbsRectToGrid(rect, GRID_CELLS_W, GRID_CELLS_H)
-      createMarqueeBox(clamped)
+      if (editorTool === 'create') {
+        const doc = useBoxEditorStore.getState().document
+        const { absRect, valid } = previewMarqueeNewBox(
+          doc,
+          activeLayerId,
+          marquee.hostParentId,
+          marquee.startGx,
+          marquee.startGy,
+          marquee.curGx,
+          marquee.curGy,
+          GRID_CELLS_W,
+          GRID_CELLS_H
+        )
+        if (absRect && valid) {
+          createMarqueeBox(absRect, undefined, marquee.hostParentId)
+        }
+      }
       setMarquee(null)
       try {
         ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
@@ -294,6 +305,21 @@ export function BoxEditorCanvas() {
     if (!abs) return
     const g = clientToGrid(gridHitTarget()!, e.clientX, e.clientY, cellSizePx)
     if (!g) return
+
+    if (editorTool === 'create') {
+      setMarquee({
+        pointerId: e.pointerId,
+        startGx: g.gx,
+        startGy: g.gy,
+        curGx: g.gx,
+        curGy: g.gy,
+        hostParentId: boxId,
+      })
+      setSelectedBoxId(null)
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+      return
+    }
+
     setSelectedBoxId(boxId)
     if (editorTool !== 'select') {
       setDropTargetId(null)
@@ -314,6 +340,17 @@ export function BoxEditorCanvas() {
   }
 
   const onBoxPointerMove = (boxId: string, e: React.PointerEvent) => {
+    if (
+      marquee &&
+      editorTool === 'create' &&
+      e.pointerId === marquee.pointerId &&
+      gridHitTarget()
+    ) {
+      const g = clientToGrid(gridHitTarget()!, e.clientX, e.clientY, cellSizePx)
+      if (!g) return
+      setMarquee((m) => (m ? { ...m, curGx: g.gx, curGy: g.gy } : m))
+      return
+    }
     if (!drag || drag.boxId !== boxId || !gridHitTarget()) return
     if (e.pointerId !== drag.pointerId) return
     const g = clientToGrid(gridHitTarget()!, e.clientX, e.clientY, cellSizePx)
@@ -407,6 +444,34 @@ export function BoxEditorCanvas() {
   }
 
   const onBoxPointerUp = (boxId: string, e: React.PointerEvent) => {
+    if (
+      marquee &&
+      editorTool === 'create' &&
+      e.pointerId === marquee.pointerId
+    ) {
+      const doc = useBoxEditorStore.getState().document
+      const { absRect, valid } = previewMarqueeNewBox(
+        doc,
+        activeLayerId,
+        marquee.hostParentId,
+        marquee.startGx,
+        marquee.startGy,
+        marquee.curGx,
+        marquee.curGy,
+        GRID_CELLS_W,
+        GRID_CELLS_H
+      )
+      if (absRect && valid) {
+        createMarqueeBox(absRect, undefined, marquee.hostParentId)
+      }
+      setMarquee(null)
+      try {
+        ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+      } catch {
+        /* noop */
+      }
+      return
+    }
     if (!drag || drag.boxId !== boxId) return
     if (e.pointerId !== drag.pointerId) return
     const abs = previewAbs
@@ -456,11 +521,6 @@ export function BoxEditorCanvas() {
       /* noop */
     }
   }
-
-  const marqueeRect =
-    editorTool === 'create' &&
-    marquee &&
-    normalizeMarquee(marquee.startGx, marquee.startGy, marquee.curGx, marquee.curGy)
 
   const onScrollportPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 1) return
@@ -635,6 +695,11 @@ export function BoxEditorCanvas() {
                       abs={abs}
                       selected={selectedBoxId === b.id}
                       dropHighlight={dropHighlight}
+                      createMarqueeHostActive={
+                        editorTool === 'create' &&
+                        marquee?.hostParentId === b.id
+                      }
+                      createTool={editorTool === 'create'}
                       dragging={
                         isDragged || isResizing || isDragDescendant
                       }
@@ -674,17 +739,24 @@ export function BoxEditorCanvas() {
             )
           })}
 
-          {marqueeRect && interactive && editorTool === 'create' && (
-            <div
-              className="pointer-events-none absolute border-2 border-sky-500 bg-sky-400/25"
-              style={{
-                left: marqueeRect.x * cellSizePx,
-                top: marqueeRect.y * cellSizePx,
-                width: marqueeRect.w * cellSizePx,
-                height: marqueeRect.h * cellSizePx,
-              }}
-            />
-          )}
+          {marqueeCreatePreview?.absRect &&
+            interactive &&
+            editorTool === 'create' && (
+              <div
+                className={cn(
+                  'pointer-events-none absolute z-30 border-2',
+                  marqueeCreatePreview.valid
+                    ? 'border-sky-500 bg-sky-400/25'
+                    : 'border-rose-500 border-dashed bg-rose-400/20'
+                )}
+                style={{
+                  left: marqueeCreatePreview.absRect.x * cellSizePx,
+                  top: marqueeCreatePreview.absRect.y * cellSizePx,
+                  width: marqueeCreatePreview.absRect.w * cellSizePx,
+                  height: marqueeCreatePreview.absRect.h * cellSizePx,
+                }}
+              />
+            )}
           </div>
         </div>
       </div>

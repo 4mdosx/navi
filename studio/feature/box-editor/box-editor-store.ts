@@ -41,7 +41,11 @@ type BoxEditorState = {
   setViewPan: (x: number, y: number) => void
   setActiveLayerId: (id: string) => void
   replaceDocument: (doc: BoxEditorDocument) => void
-  createMarqueeBox: (rect: GridRect, label?: string) => boolean
+  createMarqueeBox: (
+    rect: GridRect,
+    label?: string,
+    hostParentId?: string | null
+  ) => boolean
   commitPlacement: (
     boxId: string,
     parentId: string | null,
@@ -106,9 +110,15 @@ export const useBoxEditorStore = create<BoxEditorState>((set, get) => {
       })
     },
 
-    createMarqueeBox: (rect, label) => {
+    createMarqueeBox: (rect, label, hostParentId = null) => {
       const { document: doc, activeLayerId } = get()
-      const next = createBoxFromMarquee(doc, activeLayerId, rect, label)
+      const next = createBoxFromMarquee(
+        doc,
+        activeLayerId,
+        rect,
+        label,
+        hostParentId ?? null
+      )
       if (!next) return false
       set({ document: next })
       return true

@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import {
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Download,
   Layers2,
@@ -25,6 +26,7 @@ import {
   boxEditorToolbarToolButtonProps,
 } from './box-editor-button-variants'
 import { useBoxEditorStore } from './box-editor-store'
+import type { BoxNode } from './types'
 import { BoxEditorCanvas } from './components/box-editor-canvas'
 import { parseDocument, serializeDocument } from './schema'
 
@@ -59,9 +61,58 @@ export function BoxEditor({ className }: { className?: string }) {
   const replaceDocument = useBoxEditorStore((s) => s.replaceDocument)
   const editorTool = useBoxEditorStore((s) => s.editorTool)
   const setEditorTool = useBoxEditorStore((s) => s.setEditorTool)
+  const setSelectedBoxId = useBoxEditorStore((s) => s.setSelectedBoxId)
 
   const sortedLayers = [...document.layers].sort((a, b) => a.order - b.order)
   const selectedBox = selectedBoxId ? document.boxes[selectedBoxId] : null
+
+  const ancestorChain = useMemo((): BoxNode[] => {
+    if (!selectedBoxId) return []
+    const chain: BoxNode[] = []
+    let id: string | null = selectedBoxId
+    const seen = new Set<string>()
+    while (id) {
+      if (seen.has(id)) break
+      seen.add(id)
+      const node: BoxNode | undefined = document.boxes[id]
+      if (!node) break
+      chain.push(node)
+      id = node.parentId
+    }
+    chain.reverse()
+    return chain
+  }, [document.boxes, selectedBoxId])
+
+  const descendantRows = useMemo(() => {
+    if (!selectedBox) return [] as { node: BoxNode; depth: number }[]
+    const layerId = selectedBox.layerId
+    const sortKids = (boxes: BoxNode[]) =>
+      [...boxes].sort(
+        (a, b) =>
+          a.label.localeCompare(b.label, undefined, {
+            sensitivity: 'base',
+          }) || a.id.localeCompare(b.id)
+      )
+
+    const rows: { node: BoxNode; depth: number }[] = []
+    const queue: { node: BoxNode; depth: number }[] = sortKids(
+      Object.values(document.boxes).filter(
+        (b) => b.parentId === selectedBox.id && b.layerId === layerId
+      )
+    ).map((node) => ({ node, depth: 0 }))
+
+    while (queue.length) {
+      const { node, depth } = queue.shift()!
+      rows.push({ node, depth })
+      const next = sortKids(
+        Object.values(document.boxes).filter(
+          (b) => b.parentId === node.id && b.layerId === layerId
+        )
+      )
+      for (const child of next) queue.push({ node: child, depth: depth + 1 })
+    }
+    return rows
+  }, [document.boxes, selectedBox])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -318,7 +369,71 @@ export function BoxEditor({ className }: { className?: string }) {
           <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
             <h2 className="text-sm font-medium text-slate-800">选中项</h2>
             {selectedBox ? (
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 space-y-3">
+                <nav
+                  className="flex flex-wrap items-center gap-0.5 text-xs"
+                  aria-label="Box 层级路径"
+                >
+                  {ancestorChain.map((node, idx) => {
+                    const isLast = idx === ancestorChain.length - 1
+                    return (
+                      <span
+                        key={node.id}
+                        className="flex min-w-0 max-w-full items-center gap-0.5"
+                      >
+                        {idx > 0 ? (
+                          <ChevronRight
+                            className="h-3.5 w-3.5 shrink-0 text-slate-300"
+                            aria-hidden
+                          />
+                        ) : null}
+                        {isLast ? (
+                          <span
+                            className="truncate font-medium text-slate-800"
+                            title={node.label}
+                          >
+                            {node.label || '（无 label）'}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="max-w-[10rem] truncate rounded px-1 py-0.5 text-left text-slate-600 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:bg-slate-100 hover:text-slate-900"
+                            title={node.label}
+                            onClick={() => setSelectedBoxId(node.id)}
+                          >
+                            {node.label || '（无 label）'}
+                          </button>
+                        )}
+                      </span>
+                    )
+                  })}
+                </nav>
+                  {descendantRows.length > 0 ? (
+                    <div>
+                      <p className="text-[11px] font-medium text-slate-500">
+                        子 Box
+                      </p>
+                      <ul className="mt-1.5 max-h-48 space-y-0.5 overflow-y-auto rounded-md border border-slate-100 bg-slate-50/80 p-1">
+                        {descendantRows.map(({ node: child, depth }) => (
+                          <li key={child.id}>
+                            <button
+                              type="button"
+                              className="flex w-full min-w-0 items-center justify-between gap-2 rounded py-1.5 pr-2 text-left text-xs text-slate-700 hover:bg-white hover:text-slate-900"
+                              style={{ paddingLeft: 10 + depth * 14 }}
+                              onClick={() => setSelectedBoxId(child.id)}
+                            >
+                              <span className="truncate font-medium">
+                                {child.label || '（无 label）'}
+                              </span>
+                              <span className="shrink-0 font-mono tabular-nums text-[10px] text-slate-400">
+                                {child.w}×{child.h}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 <div className="text-xs text-slate-500">
                   ID{' '}
                   <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
