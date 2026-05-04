@@ -10,6 +10,7 @@ export {
 } from './box-editor-store'
 export type {
   BoxEditorDocument,
+  BoxKind,
   BoxNode,
   Layer,
   GridRect,

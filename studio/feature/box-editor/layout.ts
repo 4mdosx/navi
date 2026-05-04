@@ -144,7 +144,7 @@ export function canReparentAsChild(
 ): boolean {
   if (childId === newParentId) return false
   const parent = doc.boxes[newParentId]
-  if (!parent) return false
+  if (!parent || parent.type === 'thing') return false
   const child = doc.boxes[childId]
   if (!child || child.layerId !== parent.layerId) return false
   if (isAncestor(doc, childId, newParentId)) return false
@@ -184,6 +184,9 @@ export function validatePlacedNode(
   if (!abs) return false
 
   if (newParentId) {
+    const parentNode = doc.boxes[newParentId]
+    if (parentNode?.type === 'thing' || parentNode?.type === 'link')
+      return false
     const pAbs = getAbsoluteRect(draft, newParentId)
     if (!pAbs) return false
     if (!rectContains(pAbs, abs)) return false
@@ -209,6 +212,21 @@ export function validateExistingNode(doc: BoxEditorDocument, boxId: string): boo
   )
 }
 
+/** True if `boxId` is nested under a `storage` ancestor (those nodes are not drawn / hit-tested on canvas). */
+export function isDescendantOfStorageContainer(
+  doc: BoxEditorDocument,
+  boxId: string
+): boolean {
+  let pid: string | null = doc.boxes[boxId]?.parentId ?? null
+  while (pid) {
+    const p = doc.boxes[pid]
+    if (!p) break
+    if (p.type === 'storage') return true
+    pid = p.parentId
+  }
+  return false
+}
+
 /** Deepest box under point (grid coords) in layer, excluding `ignoreId` subtree. */
 export function hitTestTopMost(
   doc: BoxEditorDocument,
@@ -224,6 +242,7 @@ export function hitTestTopMost(
   const candidates: string[] = []
   for (const node of Object.values(doc.boxes)) {
     if (node.layerId !== layerId) continue
+    if (isDescendantOfStorageContainer(doc, node.id)) continue
     if (ignore.has(node.id)) continue
     const abs = getAbsoluteRect(doc, node.id)
     if (!abs) continue
@@ -300,7 +319,8 @@ export function validateDraftNewBoxAt(
   let node: BoxNode
   if (hostParentId) {
     const parent = doc.boxes[hostParentId]
-    if (!parent || parent.layerId !== layerId) return false
+    if (!parent || parent.layerId !== layerId || parent.type === 'thing')
+      return false
     const pAbs = getAbsoluteRect(doc, hostParentId)
     if (!pAbs) return false
     const inter = intersectAbsRects(absRect, pAbs)
@@ -311,6 +331,8 @@ export function validateDraftNewBoxAt(
       layerId,
       label,
       parentId: hostParentId,
+      type: 'box',
+      linkTargetLayerId: null,
       x: rel.x,
       y: rel.y,
       w: inter.w,
@@ -322,6 +344,8 @@ export function validateDraftNewBoxAt(
       layerId,
       label,
       parentId: null,
+      type: 'box',
+      linkTargetLayerId: null,
       x: absRect.x,
       y: absRect.y,
       w: absRect.w,
@@ -358,7 +382,7 @@ export function previewMarqueeNewBox(
 
   if (hostParentId) {
     const parent = doc.boxes[hostParentId]
-    if (!parent || parent.layerId !== layerId) {
+    if (!parent || parent.layerId !== layerId || parent.type === 'thing') {
       return { absRect: null, valid: false }
     }
     const pAbs = getAbsoluteRect(doc, hostParentId)
@@ -370,4 +394,163 @@ export function previewMarqueeNewBox(
 
   const valid = validateDraftNewBoxAt(doc, layerId, hostParentId, abs)
   return { absRect: abs, valid }
+}
+
+/** Root id plus all descendants (by `parentId`). */
+export function listSubtreeNodeIds(
+  doc: BoxEditorDocument,
+  rootId: string
+): Set<string> {
+  const out = new Set<string>([rootId])
+  const stack = [rootId]
+  while (stack.length) {
+    const id = stack.pop()!
+    for (const b of Object.values(doc.boxes)) {
+      if (b.parentId === id && !out.has(b.id)) {
+        out.add(b.id)
+        stack.push(b.id)
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * From the deepest hit under the point, walk up parents: first `link` whose
+ * rect contains the drop center (used as teleport target).
+ */
+export function findLinkDropReceiver(
+  doc: BoxEditorDocument,
+  layerId: string,
+  centerGx: number,
+  centerGy: number,
+  dragBoxId: string
+): string | null {
+  const hit = hitTestTopMost(doc, layerId, centerGx, centerGy, dragBoxId)
+  if (!hit) return null
+  const subtree = listSubtreeNodeIds(doc, dragBoxId)
+  let id: string | null = hit
+  while (id) {
+    if (subtree.has(id)) {
+      id = doc.boxes[id]?.parentId ?? null
+      continue
+    }
+    const n = doc.boxes[id]
+    if (!n) break
+    if (
+      n.type === 'link' &&
+      n.linkTargetLayerId &&
+      doc.layers.some((l) => l.id === n.linkTargetLayerId)
+    ) {
+      const la = getAbsoluteRect(doc, id)
+      if (
+        la &&
+        centerGx >= la.x &&
+        centerGy >= la.y &&
+        centerGx < la.x + la.w &&
+        centerGy < la.y + la.h
+      ) {
+        return id
+      }
+    }
+    id = n.parentId
+  }
+  return null
+}
+
+/** Pack subtree with root top-left at (bx,by); each rect uses offset from current root abs. */
+export function findBottomRightSlotForMovingSubtree(
+  doc: BoxEditorDocument,
+  movingRootId: string,
+  targetLayerId: string,
+  gridW: number,
+  gridH: number
+): { x: number; y: number } | null {
+  const subtreeIds = listSubtreeNodeIds(doc, movingRootId)
+  const rootOldAbs = getAbsoluteRect(doc, movingRootId)
+  if (!rootOldAbs) return null
+
+  type Off = { id: string; dx: number; dy: number; w: number; h: number }
+  const offs: Off[] = []
+  for (const id of subtreeIds) {
+    const a = getAbsoluteRect(doc, id)
+    if (!a) return null
+    offs.push({
+      id,
+      dx: a.x - rootOldAbs.x,
+      dy: a.y - rootOldAbs.y,
+      w: a.w,
+      h: a.h,
+    })
+  }
+
+  let maxRight = 0
+  let maxBottom = 0
+  for (const o of offs) {
+    maxRight = Math.max(maxRight, o.dx + o.w)
+    maxBottom = Math.max(maxBottom, o.dy + o.h)
+  }
+
+  const external: { id: string; abs: GridRect }[] = []
+  for (const [id, n] of Object.entries(doc.boxes)) {
+    if (n.layerId !== targetLayerId) continue
+    if (subtreeIds.has(id)) continue
+    const abs = getAbsoluteRect(doc, id)
+    if (abs) external.push({ id, abs })
+  }
+
+  const packFits = (bx: number, by: number): boolean => {
+    for (const o of offs) {
+      const r: GridRect = {
+        x: bx + o.dx,
+        y: by + o.dy,
+        w: o.w,
+        h: o.h,
+      }
+      if (r.x < 0 || r.y < 0 || r.x + r.w > gridW || r.y + r.h > gridH)
+        return false
+    }
+    for (const o of offs) {
+      const r: GridRect = {
+        x: bx + o.dx,
+        y: by + o.dy,
+        w: o.w,
+        h: o.h,
+      }
+      for (const ext of external) {
+        if (forbiddenOverlap(doc, o.id, r, ext.id, ext.abs)) return false
+      }
+    }
+    return true
+  }
+
+  for (let by = gridH - maxBottom; by >= 0; by--) {
+    for (let bx = gridW - maxRight; bx >= 0; bx--) {
+      if (packFits(bx, by)) return { x: bx, y: by }
+    }
+  }
+  return null
+}
+
+export function previewLinkTransferValid(
+  doc: BoxEditorDocument,
+  dragBoxId: string,
+  linkBoxId: string,
+  gridW: number,
+  gridH: number
+): boolean {
+  const link = doc.boxes[linkBoxId]
+  if (!link || link.type !== 'link' || !link.linkTargetLayerId) return false
+  if (!doc.layers.some((l) => l.id === link.linkTargetLayerId)) return false
+  const subtree = listSubtreeNodeIds(doc, dragBoxId)
+  if (subtree.has(linkBoxId)) return false
+  return (
+    findBottomRightSlotForMovingSubtree(
+      doc,
+      dragBoxId,
+      link.linkTargetLayerId,
+      gridW,
+      gridH
+    ) != null
+  )
 }

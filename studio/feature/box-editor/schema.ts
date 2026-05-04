@@ -1,10 +1,14 @@
 import { z } from 'zod'
 
+const boxKindSchema = z.enum(['box', 'thing', 'storage', 'link'])
+
 export const boxNodeSchema = z.object({
   id: z.string().min(1),
   layerId: z.string().min(1),
   label: z.string(),
   parentId: z.string().min(1).nullable(),
+  type: boxKindSchema.default('box'),
+  linkTargetLayerId: z.string().min(1).nullable().default(null),
   x: z.number().int(),
   y: z.number().int(),
   w: z.number().int().min(1),

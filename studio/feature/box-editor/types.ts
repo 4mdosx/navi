@@ -6,11 +6,17 @@ export type GridRect = {
   h: number
 }
 
+/** Semantic role of a box; default is `box`. */
+export type BoxKind = 'box' | 'thing' | 'storage' | 'link'
+
 export type BoxNode = {
   id: string
   layerId: string
   label: string
   parentId: string | null
+  type: BoxKind
+  /** When `type === 'link'`, boxes dropped onto this node move to this layer. */
+  linkTargetLayerId: string | null
   /** Position relative to parent origin (or layer origin if root). */
   x: number
   y: number

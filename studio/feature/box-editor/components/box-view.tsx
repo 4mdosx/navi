@@ -83,6 +83,15 @@ export function BoxView({
         selected && 'ring-2 ring-sky-500',
         createMarqueeHostActive &&
           'z-[15] ring-2 ring-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.35)]',
+        node.type === 'link' &&
+          dropHighlight === 'none' &&
+          'bg-violet-50/90',
+        node.type === 'thing' &&
+          dropHighlight === 'none' &&
+          'bg-amber-50/90',
+        node.type === 'storage' &&
+          dropHighlight === 'none' &&
+          'border-dashed bg-slate-50/80',
         dropHighlight === 'valid' &&
           'border-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.35)]',
         dropHighlight === 'invalid' &&
@@ -107,7 +116,13 @@ export function BoxView({
             ? 'rgb(16 185 129)'
             : dropHighlight === 'invalid'
               ? 'rgb(244 63 94)'
-              : 'rgb(148 163 184)',
+              : node.type === 'link'
+                ? 'rgb(167 139 250)'
+                : node.type === 'thing'
+                  ? 'rgb(245 158 11)'
+                  : node.type === 'storage'
+                    ? 'rgb(100 116 139)'
+                    : 'rgb(148 163 184)',
       }}
     >
       <span className="truncate text-xs font-semibold tracking-tight text-slate-700">

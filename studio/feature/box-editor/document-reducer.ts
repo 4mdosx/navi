@@ -1,9 +1,17 @@
 import { nanoid } from 'nanoid'
-import type { BoxEditorDocument, BoxNode, GridRect, Layer } from './types'
+import type {
+  BoxEditorDocument,
+  BoxKind,
+  BoxNode,
+  GridRect,
+  Layer,
+} from './types'
 import {
   absToRelative,
+  findBottomRightSlotForMovingSubtree,
   getAbsoluteRect,
   intersectAbsRects,
+  listSubtreeNodeIds,
   validateExistingNode,
   validatePlacedNode,
 } from './layout'
@@ -41,6 +49,8 @@ export function createBoxFromMarquee(
       layerId,
       label,
       parentId: hostParentId,
+      type: 'box',
+      linkTargetLayerId: null,
       x: rel.x,
       y: rel.y,
       w: inter.w,
@@ -52,6 +62,8 @@ export function createBoxFromMarquee(
       layerId,
       label,
       parentId: null,
+      type: 'box',
+      linkTargetLayerId: null,
       x: rectAbs.x,
       y: rectAbs.y,
       w: rectAbs.w,
@@ -172,6 +184,96 @@ export function updateBoxLabel(
       [boxId]: { ...node, label },
     },
   }
+}
+
+export function updateBoxKind(
+  doc: BoxEditorDocument,
+  boxId: string,
+  kind: BoxKind
+): BoxEditorDocument | null {
+  const node = doc.boxes[boxId]
+  if (!node) return null
+  if (kind === 'thing') {
+    const hasChild = Object.values(doc.boxes).some((b) => b.parentId === boxId)
+    if (hasChild) return null
+  }
+  let linkTargetLayerId = node.linkTargetLayerId
+  if (kind !== 'link') linkTargetLayerId = null
+  const nextNode: BoxNode = { ...node, type: kind, linkTargetLayerId }
+  const nextDoc: BoxEditorDocument = {
+    ...doc,
+    boxes: { ...doc.boxes, [boxId]: nextNode },
+  }
+  if (!validateExistingNode(nextDoc, boxId)) return null
+  return nextDoc
+}
+
+export function updateBoxLinkTargetLayer(
+  doc: BoxEditorDocument,
+  boxId: string,
+  targetLayerId: string | null
+): BoxEditorDocument | null {
+  const node = doc.boxes[boxId]
+  if (!node || node.type !== 'link') return null
+  if (
+    targetLayerId != null &&
+    !doc.layers.some((l) => l.id === targetLayerId)
+  ) {
+    return null
+  }
+  const nextNode: BoxNode = { ...node, linkTargetLayerId: targetLayerId }
+  const nextDoc: BoxEditorDocument = {
+    ...doc,
+    boxes: { ...doc.boxes, [boxId]: nextNode },
+  }
+  if (!validateExistingNode(nextDoc, boxId)) return null
+  return nextDoc
+}
+
+export function commitLinkTransfer(
+  doc: BoxEditorDocument,
+  movingRootId: string,
+  linkBoxId: string,
+  gridW: number,
+  gridH: number
+): BoxEditorDocument | null {
+  const link = doc.boxes[linkBoxId]
+  if (!link || link.type !== 'link' || !link.linkTargetLayerId) return null
+  const targetLayerId = link.linkTargetLayerId
+  if (!doc.layers.some((l) => l.id === targetLayerId)) return null
+
+  const moving = doc.boxes[movingRootId]
+  if (!moving || movingRootId === linkBoxId) return null
+
+  const subtree = listSubtreeNodeIds(doc, movingRootId)
+  if (subtree.has(linkBoxId)) return null
+
+  const slot = findBottomRightSlotForMovingSubtree(
+    doc,
+    movingRootId,
+    targetLayerId,
+    gridW,
+    gridH
+  )
+  if (!slot) return null
+
+  const boxes: Record<string, BoxNode> = { ...doc.boxes }
+  for (const id of subtree) {
+    const n = doc.boxes[id]
+    if (!n) continue
+    boxes[id] = {
+      ...n,
+      layerId: targetLayerId,
+      ...(id === movingRootId
+        ? { parentId: null as string | null, x: slot.x, y: slot.y }
+        : {}),
+    }
+  }
+  const nextDoc: BoxEditorDocument = { ...doc, boxes }
+  for (const id of subtree) {
+    if (!validateExistingNode(nextDoc, id)) return null
+  }
+  return nextDoc
 }
 
 export function renameLayer(

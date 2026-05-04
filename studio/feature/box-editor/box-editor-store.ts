@@ -1,17 +1,20 @@
 'use client'
 
 import { create } from 'zustand'
-import type { BoxEditorDocument, EditorTool, GridRect } from './types'
+import type { BoxEditorDocument, BoxKind, EditorTool, GridRect } from './types'
 import {
   addLayer,
   commitBoxPlacement,
   commitBoxResize,
+  commitLinkTransfer,
   createBoxFromMarquee,
   createInitialDocument,
   moveLayerOrder,
   removeLayer,
   renameLayer,
+  updateBoxKind,
   updateBoxLabel,
+  updateBoxLinkTargetLayer,
 } from './document-reducer'
 
 export const DEFAULT_CELL_PX = 28
@@ -53,6 +56,9 @@ type BoxEditorState = {
   ) => boolean
   commitResize: (boxId: string, absRect: GridRect) => boolean
   setLabel: (boxId: string, label: string) => void
+  setBoxKind: (boxId: string, kind: BoxKind) => void
+  setBoxLinkTargetLayer: (boxId: string, layerId: string | null) => void
+  commitLinkTransferAction: (movingRootId: string, linkBoxId: string) => boolean
   addLayerAction: () => void
   removeLayerAction: (layerId: string) => void
   renameLayerAction: (layerId: string, name: string) => void
@@ -144,6 +150,37 @@ export const useBoxEditorStore = create<BoxEditorState>((set, get) => {
       const next = updateBoxLabel(get().document, boxId, label)
       if (!next) return
       set({ document: next })
+    },
+
+    setBoxKind: (boxId, kind) => {
+      const next = updateBoxKind(get().document, boxId, kind)
+      if (!next) return
+      set({ document: next })
+    },
+
+    setBoxLinkTargetLayer: (boxId, layerId) => {
+      const next = updateBoxLinkTargetLayer(get().document, boxId, layerId)
+      if (!next) return
+      set({ document: next })
+    },
+
+    commitLinkTransferAction: (movingRootId, linkBoxId) => {
+      const doc = get().document
+      const link = doc.boxes[linkBoxId]
+      const next = commitLinkTransfer(
+        doc,
+        movingRootId,
+        linkBoxId,
+        GRID_CELLS_W,
+        GRID_CELLS_H
+      )
+      if (!next || !link?.linkTargetLayerId) return false
+      set({
+        document: next,
+        activeLayerId: link.linkTargetLayerId,
+        selectedBoxId: movingRootId,
+      })
+      return true
     },
 
     addLayerAction: () => {

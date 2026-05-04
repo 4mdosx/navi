@@ -4,6 +4,13 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import {
   ChevronDown,
@@ -26,7 +33,7 @@ import {
   boxEditorToolbarToolButtonProps,
 } from './box-editor-button-variants'
 import { useBoxEditorStore } from './box-editor-store'
-import type { BoxNode } from './types'
+import type { BoxKind, BoxNode } from './types'
 import { BoxEditorCanvas } from './components/box-editor-canvas'
 import { parseDocument, serializeDocument } from './schema'
 
@@ -58,6 +65,10 @@ export function BoxEditor({ className }: { className?: string }) {
   const renameLayerAction = useBoxEditorStore((s) => s.renameLayerAction)
   const selectedBoxId = useBoxEditorStore((s) => s.selectedBoxId)
   const setLabel = useBoxEditorStore((s) => s.setLabel)
+  const setBoxKind = useBoxEditorStore((s) => s.setBoxKind)
+  const setBoxLinkTargetLayer = useBoxEditorStore(
+    (s) => s.setBoxLinkTargetLayer
+  )
   const replaceDocument = useBoxEditorStore((s) => s.replaceDocument)
   const editorTool = useBoxEditorStore((s) => s.editorTool)
   const setEditorTool = useBoxEditorStore((s) => s.setEditorTool)
@@ -447,6 +458,58 @@ export function BoxEditor({ className }: { className?: string }) {
                   </span>
                   <span className="text-slate-400"> 格</span>
                 </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="box-type">类型</Label>
+                  <Select
+                    value={selectedBox.type}
+                    onValueChange={(v) =>
+                      setBoxKind(selectedBox.id, v as BoxKind)
+                    }
+                  >
+                    <SelectTrigger id="box-type" className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="box">box</SelectItem>
+                      <SelectItem value="thing">thing</SelectItem>
+                      <SelectItem value="storage">storage</SelectItem>
+                      <SelectItem value="link">link</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {selectedBox.type === 'thing' ? (
+                    <p className="text-[11px] text-slate-400">
+                      thing 不能有子节点；有子级时无法改为 thing。
+                    </p>
+                  ) : null}
+                </div>
+
+                {selectedBox.type === 'link' ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="box-link-layer">链接到图层</Label>
+                    <Select
+                      value={selectedBox.linkTargetLayerId ?? '__none__'}
+                      onValueChange={(v) =>
+                        setBoxLinkTargetLayer(
+                          selectedBox.id,
+                          v === '__none__' ? null : v
+                        )
+                      }
+                    >
+                      <SelectTrigger id="box-link-layer" className="h-9">
+                        <SelectValue placeholder="选择目标图层" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">（未选择）</SelectItem>
+                        {sortedLayers.map((layer) => (
+                          <SelectItem key={layer.id} value={layer.id}>
+                            {layer.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+
                 <div className="space-y-1.5">
                   <Label htmlFor="box-label">Label</Label>
                   <Input

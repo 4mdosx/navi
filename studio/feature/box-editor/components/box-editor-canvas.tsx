@@ -6,9 +6,12 @@ import { useBoxEditorStore, GRID_CELLS_H, GRID_CELLS_W } from '../box-editor-sto
 import {
   absToRelative,
   clampAbsRectToGrid,
+  findLinkDropReceiver,
   getAbsoluteRect,
   hitTestTopMost,
   isAncestor,
+  isDescendantOfStorageContainer,
+  previewLinkTransferValid,
   previewMarqueeNewBox,
   rectFromDiagonalCells,
   validatePlacedNode,
@@ -118,6 +121,9 @@ export function BoxEditorCanvas() {
   const editorTool = useBoxEditorStore((s) => s.editorTool)
   const createMarqueeBox = useBoxEditorStore((s) => s.createMarqueeBox)
   const commitPlacement = useBoxEditorStore((s) => s.commitPlacement)
+  const commitLinkTransferAction = useBoxEditorStore(
+    (s) => s.commitLinkTransferAction
+  )
   const commitResize = useBoxEditorStore((s) => s.commitResize)
   const viewPanX = useBoxEditorStore((s) => s.viewPanX)
   const viewPanY = useBoxEditorStore((s) => s.viewPanY)
@@ -170,9 +176,31 @@ export function BoxEditorCanvas() {
   const resolveDropTarget = useCallback((dragBoxId: string, abs: GridRect) => {
     const doc = useBoxEditorStore.getState().document
     const node = doc.boxes[dragBoxId]
-    if (!node) return { parentId: null as string | null, valid: false }
+    if (!node)
+      return {
+        parentId: null as string | null,
+        valid: false,
+        highlightId: null as string | null,
+      }
     const cx = Math.floor(abs.x + abs.w / 2)
     const cy = Math.floor(abs.y + abs.h / 2)
+
+    const linkRecv = findLinkDropReceiver(doc, activeLayerId, cx, cy, dragBoxId)
+    if (linkRecv) {
+      const ok = previewLinkTransferValid(
+        doc,
+        dragBoxId,
+        linkRecv,
+        GRID_CELLS_W,
+        GRID_CELLS_H
+      )
+      return {
+        parentId: null as string | null,
+        valid: ok,
+        highlightId: linkRecv,
+      }
+    }
+
     const id = hitTestTopMost(doc, activeLayerId, cx, cy, dragBoxId)
     if (!id || id === dragBoxId) {
       const ok = validatePlacedNode(
@@ -182,16 +210,25 @@ export function BoxEditorCanvas() {
         { x: abs.x, y: abs.y },
         { w: node.w, h: node.h }
       )
-      return { parentId: null as string | null, valid: ok }
+      return {
+        parentId: null as string | null,
+        valid: ok,
+        highlightId: null as string | null,
+      }
     }
     const pAbs = getAbsoluteRect(doc, id)
-    if (!pAbs) return { parentId: null as string | null, valid: false }
+    if (!pAbs)
+      return {
+        parentId: null as string | null,
+        valid: false,
+        highlightId: null as string | null,
+      }
     const rel = { x: abs.x - pAbs.x, y: abs.y - pAbs.y }
     const ok = validatePlacedNode(doc, dragBoxId, id, rel, {
       w: node.w,
       h: node.h,
     })
-    return { parentId: id, valid: ok }
+    return { parentId: id, valid: ok, highlightId: id }
   }, [activeLayerId])
 
   const gridHitTarget = () => panPlateRef.current
@@ -307,6 +344,8 @@ export function BoxEditorCanvas() {
     if (!g) return
 
     if (editorTool === 'create') {
+      const host = docSnap.boxes[boxId]
+      if (host.type === 'thing' || host.type === 'link') return
       setMarquee({
         pointerId: e.pointerId,
         startGx: g.gx,
@@ -365,8 +404,8 @@ export function BoxEditorCanvas() {
     }
     const abs = clampAbsRectToGrid(raw, GRID_CELLS_W, GRID_CELLS_H)
     setPreviewAbs(abs)
-    const { parentId, valid } = resolveDropTarget(boxId, abs)
-    setDropTargetId(parentId)
+    const { parentId, valid, highlightId } = resolveDropTarget(boxId, abs)
+    setDropTargetId(highlightId ?? parentId)
     setDropValid(valid)
   }
 
@@ -480,35 +519,55 @@ export function BoxEditorCanvas() {
     if (abs && node) {
       const centerGx = Math.floor(abs.x + abs.w / 2)
       const centerGy = Math.floor(abs.y + abs.h / 2)
-      const parentHit = hitTestTopMost(
+      const linkRecv = findLinkDropReceiver(
         doc,
         activeLayerId,
         centerGx,
         centerGy,
         boxId
       )
-      const parentId =
-        parentHit && parentHit !== boxId ? parentHit : null
-      const rel =
-        parentId == null
-          ? { x: abs.x, y: abs.y }
-          : (() => {
-              const pAbs = getAbsoluteRect(doc, parentId)
-              if (!pAbs) return { x: abs.x, y: abs.y }
-              return { x: abs.x - pAbs.x, y: abs.y - pAbs.y }
-            })()
-      const ok =
-        parentId == null
-          ? validatePlacedNode(doc, boxId, null, rel, {
-              w: node.w,
-              h: node.h,
-            })
-          : validatePlacedNode(doc, boxId, parentId, rel, {
-              w: node.w,
-              h: node.h,
-            })
-      if (ok) {
-        commitPlacement(boxId, parentId, { x: abs.x, y: abs.y })
+      if (
+        linkRecv &&
+        previewLinkTransferValid(
+          doc,
+          boxId,
+          linkRecv,
+          GRID_CELLS_W,
+          GRID_CELLS_H
+        )
+      ) {
+        commitLinkTransferAction(boxId, linkRecv)
+      } else {
+        const parentHit = hitTestTopMost(
+          doc,
+          activeLayerId,
+          centerGx,
+          centerGy,
+          boxId
+        )
+        const parentId =
+          parentHit && parentHit !== boxId ? parentHit : null
+        const rel =
+          parentId == null
+            ? { x: abs.x, y: abs.y }
+            : (() => {
+                const pAbs = getAbsoluteRect(doc, parentId)
+                if (!pAbs) return { x: abs.x, y: abs.y }
+                return { x: abs.x - pAbs.x, y: abs.y - pAbs.y }
+              })()
+        const ok =
+          parentId == null
+            ? validatePlacedNode(doc, boxId, null, rel, {
+                w: node.w,
+                h: node.h,
+              })
+            : validatePlacedNode(doc, boxId, parentId, rel, {
+                w: node.w,
+                h: node.h,
+              })
+        if (ok) {
+          commitPlacement(boxId, parentId, { x: abs.x, y: abs.y })
+        }
       }
     }
     setDrag(null)
@@ -607,9 +666,9 @@ export function BoxEditorCanvas() {
           {layersToRender.map((layer) => {
             const docIndex = sortedLayers.findIndex((l) => l.id === layer.id)
             const isActive = layer.id === activeLayerId
-            const boxes = boxesOnLayer(document, layer.id).sort(
-              (a, b) => depthOf(document, a.id) - depthOf(document, b.id)
-            )
+            const boxes = boxesOnLayer(document, layer.id)
+              .filter((b) => !isDescendantOfStorageContainer(document, b.id))
+              .sort((a, b) => depthOf(document, a.id) - depthOf(document, b.id))
 
             const rel = docIndex - activeSortedIndex
             const z = layersTool ? rel * layerGapLayers : 0
