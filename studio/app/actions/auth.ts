@@ -1,39 +1,22 @@
 'use server'
 import 'server-only'
 
-import { deleteSession, createSession } from '@/backstage/service/auth.service'
+import {
+  deleteSession,
+  loginWithTotp,
+} from '@/backstage/service/auth.service'
+import type { TotpLoginInput } from '@/backstage/service/auth.types'
 import { redirect } from 'next/navigation'
-import { z } from 'zod'
-import { verifyOTP } from '@/backstage/service/2fa.service'
 
-const LoginSchema = z.object({
-  code: z.string().length(6),
-})
-
-export async function login(loginData: z.infer<typeof LoginSchema>) {
-  const validatedFields = LoginSchema.safeParse({
-    code: loginData.code,
-  })
-
-  if (!validatedFields.success) {
-    return {
-      errors: validatedFields.error.flatten().fieldErrors,
-    }
+export async function login(loginData: TotpLoginInput) {
+  const result = await loginWithTotp(loginData)
+  if (!result.ok) {
+    return { errors: result.errors }
   }
-
-  const result = await verifyOTP(process.env.TOTP_SECRET!, validatedFields.data.code)
-  if (!result) {
-    return {
-      errors: {
-        code: ['Invalid code'],
-      },
-    }
-  }
-  await createSession()
   redirect('/')
 }
 
 export async function logout() {
-  deleteSession()
+  await deleteSession()
   redirect('/')
 }

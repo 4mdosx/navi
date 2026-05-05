@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * 数据库初始化脚本：创建 settings / projects / project_todos
+ * 数据库初始化脚本：创建 settings / projects / project_todos / agent_sessions。
+ * `agent_sessions` 每次 init 会先 **DROP** 再建表（仅清空 Agent 会话；projects 等不受影响）。
  *
  * 用法:
  *   npm run init-db
@@ -50,6 +51,40 @@ function initializeDatabase(): void {
         PRIMARY KEY (projectId, weekItemIndex),
         FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE CASCADE
       )
+    `)
+
+    // agent_sessions：与 Cursor SDK 对齐；升级时整表丢弃重建（仅影响 Agent 会话数据）
+    sqlite.exec(`DROP TABLE IF EXISTS agent_sessions`)
+
+    sqlite.exec(`
+      CREATE TABLE agent_sessions (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        startedAt TEXT NOT NULL,
+        endedAt TEXT,
+        exitCode INTEGER,
+        sdkRunId TEXT,
+        sdkAgentId TEXT,
+        sdkRuntime TEXT,
+        taskParamsJson TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL,
+        logBlob TEXT NOT NULL DEFAULT ''
+      )
+    `)
+
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_agent_sessions_status
+      ON agent_sessions(status)
+    `)
+
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_agent_sessions_startedAt
+      ON agent_sessions(startedAt DESC)
+    `)
+
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_agent_sessions_sdkRunId
+      ON agent_sessions(sdkRunId)
     `)
 
     console.log('✓ Database initialized successfully')

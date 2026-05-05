@@ -3,7 +3,8 @@ import 'server-only'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { SignJWT, jwtVerify } from 'jose'
-import { SessionPayload } from './auth.types'
+import { TotpLoginSchema, type SessionPayload } from './auth.types'
+import { verifyOTP } from './2fa.service'
 
 const secretKey = process.env.SESSION_SECRET
 const encodedKey = new TextEncoder().encode(secretKey)
@@ -82,4 +83,32 @@ export async function updateSession() {
 
 export async function deleteSession() {
   ;(await cookies()).delete('session')
+}
+
+export type TotpLoginFieldErrors = Record<string, string[] | undefined>
+
+/**
+ * TOTP 校验通过后签发 session cookie。
+ * 供 `app/actions/auth` 等 Server Action 调用；不在此函数内 redirect。
+ */
+export async function loginWithTotp(
+  input: unknown
+): Promise<{ ok: true } | { ok: false; errors: TotpLoginFieldErrors }> {
+  const parsed = TotpLoginSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.flatten().fieldErrors }
+  }
+
+  const secret = process.env.TOTP_SECRET
+  if (!secret) {
+    return { ok: false, errors: { code: ['Server misconfiguration'] } }
+  }
+
+  const valid = await verifyOTP(secret, parsed.data.code)
+  if (!valid) {
+    return { ok: false, errors: { code: ['Invalid code'] } }
+  }
+
+  await createSession()
+  return { ok: true }
 }

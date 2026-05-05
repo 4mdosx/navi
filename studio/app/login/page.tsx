@@ -17,7 +17,9 @@ import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string[]>>({})
+  const [errors, setErrors] = useState<
+    Record<string, string[] | undefined>
+  >({})
   const router = useRouter()
 
   const handleVerificationComplete = async (code: string) => {
@@ -66,9 +68,8 @@ export default function LoginPage() {
               >
                 Back
               </Button>
-              {errors.code && <p className="text-red-500">{errors.code[0]}</p>}
-              {errors.password && (
-                <p className="text-red-500">{errors.password[0]}</p>
+              {errors.code && (
+                <p className="text-red-500">{errors.code[0]}</p>
               )}
             </CardFooter>
           </Card>

@@ -4,6 +4,9 @@ export type SessionPayload = {
   expiresAt: Date
 }
 
-export const LoginFormSchema = z.object({
-  password: z.string().trim(),
+/** TOTP 登录表单（与 `app/login` 六位数验证码一致） */
+export const TotpLoginSchema = z.object({
+  code: z.string().length(6),
 })
+
+export type TotpLoginInput = z.infer<typeof TotpLoginSchema>
