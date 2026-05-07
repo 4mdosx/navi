@@ -17,8 +17,18 @@ export function AgentChat(props: {
   selectedAgent?: string
   onAgentChange?: (agentId: string) => void
   onSend: (text: string) => void | Promise<void>
+  hideComposer?: boolean
 }) {
-  const { turns, disabled, sending, agentOptions, selectedAgent, onAgentChange, onSend } = props
+  const {
+    turns,
+    disabled,
+    sending,
+    agentOptions,
+    selectedAgent,
+    onAgentChange,
+    onSend,
+    hideComposer,
+  } = props
   const scrollRef = useRef<HTMLDivElement>(null)
   const [text, setText] = useState('')
 
@@ -71,50 +81,52 @@ export function AgentChat(props: {
         )}
       </div>
 
-      <form
-        className="shrink-0 border-t border-border p-2"
-        onSubmit={(e) => {
-          e.preventDefault()
-          const v = text.trim()
-          if (!v) return
-          void Promise.resolve(onSend(v)).then(() => setText(''))
-        }}
-      >
-        <div className="flex items-end gap-2">
-          <select
-            value={selectedAgent ?? ''}
-            onChange={(e) => onAgentChange?.(e.target.value)}
-            disabled={disabled || sending || !agentOptions || agentOptions.length === 0}
-            className="h-9 shrink-0 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground"
-            title="选择本轮消息使用的 Agent"
-          >
-            {(agentOptions ?? []).map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}
-              </option>
-            ))}
-          </select>
-          <Textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={disabled ? '选择会话后开始对话…' : '输入消息，回车发送（Shift+Enter 换行）'}
-            rows={2}
-            disabled={disabled || sending}
-            className="min-h-[2.5rem] resize-none text-sm"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                const v = text.trim()
-                if (!v) return
-                void Promise.resolve(onSend(v)).then(() => setText(''))
-              }
-            }}
-          />
-          <Button type="submit" disabled={disabled || sending || !text.trim()}>
-            {sending ? '发送中' : '发送'}
-          </Button>
-        </div>
-      </form>
+      {!hideComposer && (
+        <form
+          className="shrink-0 border-t border-border p-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const v = text.trim()
+            if (!v) return
+            void Promise.resolve(onSend(v)).then(() => setText(''))
+          }}
+        >
+          <div className="flex items-end gap-2">
+            <select
+              value={selectedAgent ?? ''}
+              onChange={(e) => onAgentChange?.(e.target.value)}
+              disabled={disabled || sending || !agentOptions || agentOptions.length === 0}
+              className="h-9 shrink-0 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground"
+              title="选择本轮消息使用的 Agent"
+            >
+              {(agentOptions ?? []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+            <Textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={disabled ? '选择会话后开始对话…' : '输入消息，回车发送（Shift+Enter 换行）'}
+              rows={2}
+              disabled={disabled || sending}
+              className="min-h-[2.5rem] resize-none text-sm"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  const v = text.trim()
+                  if (!v) return
+                  void Promise.resolve(onSend(v)).then(() => setText(''))
+                }
+              }}
+            />
+            <Button type="submit" disabled={disabled || sending || !text.trim()}>
+              {sending ? '发送中' : '发送'}
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   )
 }

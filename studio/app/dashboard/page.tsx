@@ -79,6 +79,10 @@ export default function DashboardPage() {
           <h2 className="font-medium">Agent 设置</h2>
           <p className="mt-1 text-sm text-muted-foreground">管理 presets 与默认配置</p>
         </Link>
+        <Link href="/obsidian-vault" className="rounded-lg border border-border p-4 hover:bg-muted/40">
+          <h2 className="font-medium">Obsidian Vault</h2>
+          <p className="mt-1 text-sm text-muted-foreground">浏览目录树并预览 Markdown 文档</p>
+        </Link>
       </div>
     </div>
   )

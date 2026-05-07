@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
-import { Bot, ChevronLeft, Loader2, RefreshCw, Square, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Bot, ChevronDown, ChevronLeft, Loader2, RefreshCw, Square, Trash2 } from 'lucide-react'
 
 import { AgentChat } from '@/feature/agent-dashboard/agent-terminal'
 import { useAgentSession } from '@/feature/agent-dashboard/use-agent-session'
@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils'
 export function AgentDashboard(props?: { mode?: 'chat' | 'settings' }) {
   const mode = props?.mode ?? 'chat'
   const [prompt, setPrompt] = useState('')
+  const [historyExpanded, setHistoryExpanded] = useState(false)
+  const [actionType, setActionType] = useState<'create' | 'reply'>('reply')
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null)
   const [presetForm, setPresetForm] = useState({
     id: '',
@@ -63,11 +65,26 @@ export function AgentDashboard(props?: { mode?: 'chat' | 'settings' }) {
     e.preventDefault()
     const p = prompt.trim()
     if (!p) return
-    await createSession(p, selectedCreateAgent || undefined)
+    if (actionType === 'create') {
+      await createSession(p, selectedCreateAgent || undefined)
+    } else {
+      if (!selectedId) return
+      await sendMessage(p, selectedChatAgent || undefined)
+    }
     setPrompt('')
   }
 
   const isRunning = status === 'running'
+  const canSubmit =
+    prompt.trim().length > 0 &&
+    !creating &&
+    !sending &&
+    (actionType === 'create' || Boolean(selectedId))
+  const primarySession = useMemo(() => {
+    if (selectedId) return sessions.find((s) => s.id === selectedId) ?? sessions[0]
+    return sessions[0]
+  }, [selectedId, sessions])
+  const visibleSessions = historyExpanded ? sessions : primarySession ? [primarySession] : []
   const isEditingPreset = Boolean(editingPresetId)
 
   return (
@@ -79,17 +96,12 @@ export function AgentDashboard(props?: { mode?: 'chat' | 'settings' }) {
             <h1 className="truncate text-base font-semibold sm:text-lg">Agent</h1>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => void refreshSessions()}
-          disabled={loadingList}
-          className="shrink-0 gap-1"
-        >
-          <RefreshCw className={cn('h-4 w-4', loadingList && 'animate-spin')} />
-          <span className="hidden sm:inline">刷新列表</span>
-        </Button>
+        <Link href="/dashboard" className="inline-flex">
+          <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1">
+            <ChevronLeft className="h-4 w-4" />
+            返回
+          </Button>
+        </Link>
       </header>
 
       {error && (
@@ -103,16 +115,31 @@ export function AgentDashboard(props?: { mode?: 'chat' | 'settings' }) {
           {mode === 'chat' && (
             <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">会话</CardTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">会话历史</CardTitle>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 px-2 text-xs"
+                    onClick={() => setHistoryExpanded((v) => !v)}
+                    disabled={sessions.length <= 1}
+                  >
+                    <ChevronDown
+                      className={cn('h-3.5 w-3.5 transition-transform', historyExpanded && 'rotate-180')}
+                    />
+                    {historyExpanded ? '收起' : '展开'}
+                  </Button>
+                </div>
                 <CardDescription className="text-xs">
-                  点击选中；新建在下方表单
+                  默认仅显示最近一条，展开可查看全部
                 </CardDescription>
               </CardHeader>
               <CardContent className="scrollbar-hide flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3 pt-0">
                 {sessions.length === 0 && !loadingList ? (
                   <p className="text-xs text-muted-foreground">暂无会话</p>
                 ) : (
-                  sessions.map((s) => (
+                  visibleSessions.map((s) => (
                     <button
                       key={s.id}
                       type="button"
@@ -147,51 +174,6 @@ export function AgentDashboard(props?: { mode?: 'chat' | 'settings' }) {
                     </button>
                   ))
                 )}
-              </CardContent>
-            </Card>
-          )}
-
-          {mode === 'chat' && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">新建任务</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={onSubmit} className="flex flex-col gap-2">
-                  <label className="text-xs text-muted-foreground">
-                    Agent
-                    <select
-                      value={selectedCreateAgent}
-                      onChange={(e) => setSelectedCreateAgent(e.target.value)}
-                      disabled={creating || agents.length === 0}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                    >
-                      {agents.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.label} ({a.runtime})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <Textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="输入发给 Cursor Agent 的任务…"
-                    rows={4}
-                    className="min-h-[5rem] resize-y text-sm"
-                    disabled={creating}
-                  />
-                  <Button type="submit" disabled={creating || !prompt.trim()}>
-                    {creating ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        创建中
-                      </>
-                    ) : (
-                      '创建会话'
-                    )}
-                  </Button>
-                </form>
               </CardContent>
             </Card>
           )}
@@ -360,6 +342,79 @@ export function AgentDashboard(props?: { mode?: 'chat' | 'settings' }) {
 
         {mode === 'chat' && (
         <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+          <Card className="shrink-0">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">操作区</CardTitle>
+              <CardDescription className="text-xs">新建、刷新、回复统一入口</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={onSubmit} className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={actionType}
+                    onChange={(e) =>
+                      setActionType(e.target.value === 'create' ? 'create' : 'reply')
+                    }
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  >
+                    <option value="reply">回复当前会话</option>
+                    <option value="create">新建会话</option>
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void refreshSessions()}
+                    disabled={loadingList}
+                    className="gap-1"
+                  >
+                    <RefreshCw className={cn('h-4 w-4', loadingList && 'animate-spin')} />
+                    刷新列表
+                  </Button>
+                  <select
+                    value={actionType === 'create' ? selectedCreateAgent : selectedChatAgent}
+                    onChange={(e) => {
+                      if (actionType === 'create') {
+                        setSelectedCreateAgent(e.target.value)
+                      } else {
+                        setSelectedChatAgent(e.target.value)
+                      }
+                    }}
+                    disabled={creating || sending || agents.length === 0}
+                    className="h-9 min-w-52 rounded-md border border-input bg-background px-2 text-sm"
+                    title="选择本次操作使用的 Agent"
+                  >
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label} ({a.runtime})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder={
+                    actionType === 'create'
+                      ? '输入发给 Cursor Agent 的任务，提交后新建会话…'
+                      : selectedId
+                        ? '输入回复内容…'
+                        : '请先选择一个会话再回复…'
+                  }
+                  rows={3}
+                  className="min-h-[4.5rem] resize-y text-sm"
+                  disabled={creating || sending || (actionType === 'reply' && !selectedId)}
+                />
+                <div className="flex items-center justify-end">
+                  <Button type="submit" disabled={!canSubmit} className="gap-1">
+                    {(creating || sending) && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {actionType === 'create' ? '创建会话' : '发送回复'}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {selectedId ? (
               <>
@@ -404,7 +459,7 @@ export function AgentDashboard(props?: { mode?: 'chat' | 'settings' }) {
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                选择左侧会话或新建任务以查看输出
+                选择左侧会话或新建会话以查看输出
               </p>
             )}
           </div>
@@ -425,6 +480,7 @@ export function AgentDashboard(props?: { mode?: 'chat' | 'settings' }) {
                   agentOptions={agents}
                   selectedAgent={selectedChatAgent}
                   onAgentChange={setSelectedChatAgent}
+                  hideComposer
                   onSend={async (text) => {
                     if (!selectedId) return
                     await sendMessage(text, selectedChatAgent || undefined)

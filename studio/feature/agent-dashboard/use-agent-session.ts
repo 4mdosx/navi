@@ -83,13 +83,23 @@ export function useAgentSession() {
         setError(err.error ?? `HTTP ${res.status}`)
         return
       }
-      setSessions(Array.isArray(data) ? data : [])
+      const nextSessions = Array.isArray(data) ? data : []
+      setSessions(nextSessions)
+      if (!selectedId && nextSessions.length > 0) {
+        setSelectedId(nextSessions[0].id)
+        nextStartLineRef.current = 0
+        setStatus(null)
+        setExitCode(null)
+        turnsRef.current = []
+        currentAgentTurnIndexRef.current = null
+        setTurns([])
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'List failed')
     } finally {
       setLoadingList(false)
     }
-  }, [redirectIfUnauthorized])
+  }, [redirectIfUnauthorized, selectedId])
 
   useEffect(() => {
     void refreshSessions()
