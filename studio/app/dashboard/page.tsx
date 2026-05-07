@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM,
@@ -133,7 +134,23 @@ export default function DashboardScheduleTestPage() {
     <div className="mx-auto h-[calc(100vh-6rem)] max-w-7xl p-6">
       <div className="grid h-full gap-6 md:grid-cols-[2fr_1fr]">
         <div className="flex min-h-0 min-w-0 flex-col">
-          <h1 className="mb-2 text-lg font-semibold">{yearWeekLabel}</h1>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h1 className="text-lg font-semibold">{yearWeekLabel}</h1>
+            <div className="flex items-center gap-2 text-sm">
+              <Link
+                href="/dashboard/agent"
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                Agent
+              </Link>
+              <Link
+                href="/dashboard/box-editor"
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                空间编辑器
+              </Link>
+            </div>
+          </div>
           <CurriculumSchedule
             className="min-h-0 flex-1"
             currentDate={currentDate}
