@@ -81,11 +81,11 @@ export async function POST(request: Request) {
 
   try {
     const id = await createAgentSession({
-      taskParams: { prompt: parsed.data.prompt },
+      taskParams: { prompt: parsed.data.prompt, agent: parsed.data.agent ?? null },
     })
 
     after(() => {
-      void executeCursorAgentSession(id, parsed.data.prompt).catch((err) => {
+      void executeCursorAgentSession(id, parsed.data.prompt, parsed.data.agent).catch((err) => {
         console.error('[api/agent/sessions] background run', id, err)
       })
     })

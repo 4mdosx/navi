@@ -1,184 +1,84 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM,
-  CurriculumSchedule,
-  type CourseDragPayload,
-  curriculumScheduleDayColumnMinWidthPx,
-  getSundayOfWeekContaining,
-  type ScheduleBlock,
-} from '@/feature/curriculum-schedule'
-import { useScheduleStore } from './schedule-store'
+import { useEffect, useState } from 'react'
 
-const DAY_COL_PX = curriculumScheduleDayColumnMinWidthPx()
+type AgentSessionMeta = { status: string }
+type AgentConfigResponse = { presets: unknown[] }
 
-const SCHEDULE_START_HOUR = 9
-const SCHEDULE_END_HOUR = 23
-
-function getYearWeekLabel(date: Date): string {
-  const year = date.getFullYear()
-  const weekStart = getSundayOfWeekContaining(date)
-  const firstWeekStart = getSundayOfWeekContaining(new Date(year, 0, 1))
-  const diffDays = Math.floor(
-    (weekStart.getTime() - firstWeekStart.getTime()) / 86400000
-  )
-  const week = Math.floor(diffDays / 7) + 1
-  return `${year}年 第${week}周`
-}
-
-function PendingCourseCard({
-  id,
-  title,
-  day,
-  hour,
-}: {
-  id: string
-  title: string
-  day: number
-  hour: number
-}) {
-  const setDraggingPayload = useScheduleStore((s) => s.setDraggingPayload)
-
-  const onDragStart = (e: React.DragEvent) => {
-    const payloadObj = {
-      kind: 'schedule-course',
-      source: 'pending',
-      id,
-      title,
-      rowSpan: day,
-      colSpan: hour,
-    } satisfies CourseDragPayload
-    const payload = JSON.stringify(payloadObj)
-    setDraggingPayload(payloadObj)
-    e.dataTransfer.setData(
-      'application/json',
-      payload
-    )
-    // Fallback for browsers that only expose plain text type during dragover.
-    e.dataTransfer.setData('text/plain', payload)
-    e.dataTransfer.effectAllowed = 'move'
-  }
-
-  return (
-    <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={() => setDraggingPayload(null)}
-      className="flex max-w-full min-w-0 cursor-grab flex-col justify-start overflow-hidden rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm active:cursor-grabbing dark:border-neutral-800 dark:bg-neutral-950"
-      style={{
-        width: `min(100%, ${hour * DAY_COL_PX}px)`,
-        minHeight: `${day * CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM}rem`,
-      }}
-    >
-      <span className="block min-w-0 truncate font-medium leading-snug">
-        {title}
-      </span>
-      <span className="mt-0.5 text-xs tabular-nums text-neutral-500">
-        {day} 行 × {hour} 列
-      </span>
-    </div>
-  )
-}
-
-export default function DashboardScheduleTestPage() {
-  const currentDate = useMemo(() => new Date(), [])
-  const [now, setNow] = useState(() => new Date())
+export default function DashboardPage() {
+  const [sessionCount, setSessionCount] = useState(0)
+  const [runningCount, setRunningCount] = useState(0)
+  const [presetCount, setPresetCount] = useState(0)
 
   useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 60_000)
-    return () => window.clearInterval(id)
+    let cancelled = false
+    const load = async () => {
+      try {
+        const [sessionsRes, configRes] = await Promise.all([
+          fetch('/api/agent/sessions?limit=200', { credentials: 'include' }),
+          fetch('/api/agent/config', { credentials: 'include' }),
+        ])
+        if (cancelled) return
+        if (sessionsRes.ok) {
+          const sessions = (await sessionsRes.json()) as AgentSessionMeta[]
+          setSessionCount(sessions.length)
+          setRunningCount(sessions.filter((s) => s.status === 'running').length)
+        }
+        if (configRes.ok) {
+          const config = (await configRes.json()) as AgentConfigResponse
+          setPresetCount(Array.isArray(config.presets) ? config.presets.length : 0)
+        }
+      } catch {
+        // ignore and keep page usable
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const pending = useScheduleStore((s) => s.pending)
-  const placed = useScheduleStore((s) => s.placed)
-  const draggingPayload = useScheduleStore((s) => s.draggingPayload)
-  const setWeekAnchor = useScheduleStore((s) => s.setWeekAnchor)
-  const setScheduleHours = useScheduleStore((s) => s.setScheduleHours)
-  const setDraggingPayload = useScheduleStore((s) => s.setDraggingPayload)
-  const tryCommitDropToSchedule = useScheduleStore(
-    (s) => s.tryCommitDropToSchedule
-  )
-  const movePlacedBackToPending = useScheduleStore(
-    (s) => s.movePlacedBackToPending
-  )
-
-  useEffect(() => {
-    setWeekAnchor(currentDate)
-  }, [currentDate, setWeekAnchor])
-
-  useEffect(() => {
-    setScheduleHours(SCHEDULE_START_HOUR, SCHEDULE_END_HOUR)
-  }, [setScheduleHours])
-
-  const handleDropToSchedule = useCallback(
-    (block: ScheduleBlock) => {
-      tryCommitDropToSchedule(block, Date.now())
-      setDraggingPayload(null)
-    },
-    [setDraggingPayload, tryCommitDropToSchedule]
-  )
-
-  const handleDropOutsideSchedule = useCallback(
-    (courseId: string) => {
-      movePlacedBackToPending(courseId)
-      setDraggingPayload(null)
-    },
-    [movePlacedBackToPending, setDraggingPayload]
-  )
-
-  const yearWeekLabel = useMemo(() => getYearWeekLabel(currentDate), [currentDate])
-
   return (
-    <div className="mx-auto h-[calc(100vh-6rem)] max-w-7xl p-6">
-      <div className="grid h-full gap-6 md:grid-cols-[2fr_1fr]">
-        <div className="flex min-h-0 min-w-0 flex-col">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h1 className="text-lg font-semibold">{yearWeekLabel}</h1>
-            <div className="flex items-center gap-2 text-sm">
-              <Link
-                href="/dashboard/agent"
-                className="text-primary underline-offset-4 hover:underline"
-              >
-                Agent
-              </Link>
-              <Link
-                href="/dashboard/box-editor"
-                className="text-primary underline-offset-4 hover:underline"
-              >
-                空间编辑器
-              </Link>
-            </div>
-          </div>
-          <CurriculumSchedule
-            className="min-h-0 flex-1"
-            currentDate={currentDate}
-            current={now}
-            startHour={SCHEDULE_START_HOUR}
-            endHour={SCHEDULE_END_HOUR}
-            locale="zh-CN"
-            blocks={placed}
-            activeDragPayload={draggingPayload}
-            onDropToSchedule={handleDropToSchedule}
-            onDropOutsideSchedule={handleDropOutsideSchedule}
-          />
+    <div className="mx-auto max-w-6xl p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <p className="mt-1 text-sm text-muted-foreground">统一入口与运行统计</p>
+      </div>
+      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-border p-4">
+          <p className="text-xs text-muted-foreground">Agent 会话总数</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums">{sessionCount}</p>
         </div>
-        <aside className="flex min-h-0 min-w-0 flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50/80 p-4 dark:border-neutral-800 dark:bg-neutral-900/40">
-          <div>
-            <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              待安排活动
-            </h2>
-            <p className="mt-1 text-xs text-neutral-500">
-              按住卡片拖到左侧周历；day = 纵向格数，hour = 横向格数。
-            </p>
-          </div>
-          <div className="scrollbar-hide flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
-            {pending.map((c) => (
-              <PendingCourseCard key={c.id} {...c} />
-            ))}
-          </div>
-        </aside>
+        <div className="rounded-lg border border-border p-4">
+          <p className="text-xs text-muted-foreground">运行中会话</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums">{runningCount}</p>
+        </div>
+        <div className="rounded-lg border border-border p-4">
+          <p className="text-xs text-muted-foreground">Agent 预设数量</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums">{presetCount}</p>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Link href="/week-plan" className="rounded-lg border border-border p-4 hover:bg-muted/40">
+          <h2 className="font-medium">周计划</h2>
+          <p className="mt-1 text-sm text-muted-foreground">拖拽安排每周任务</p>
+        </Link>
+        <Link href="/box-editor" className="rounded-lg border border-border p-4 hover:bg-muted/40">
+          <h2 className="font-medium">空间编辑器</h2>
+          <p className="mt-1 text-sm text-muted-foreground">编辑容器与布局内容</p>
+        </Link>
+        <Link href="/agent/chat" className="rounded-lg border border-border p-4 hover:bg-muted/40">
+          <h2 className="font-medium">Agent 对话</h2>
+          <p className="mt-1 text-sm text-muted-foreground">发起任务并跟踪会话</p>
+        </Link>
+        <Link
+          href="/agent/settings"
+          className="rounded-lg border border-border p-4 hover:bg-muted/40"
+        >
+          <h2 className="font-medium">Agent 设置</h2>
+          <p className="mt-1 text-sm text-muted-foreground">管理 presets 与默认配置</p>
+        </Link>
       </div>
     </div>
   )

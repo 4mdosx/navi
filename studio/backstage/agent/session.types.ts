@@ -3,6 +3,7 @@ import { z } from 'zod'
 /** POST /api/agent/sessions */
 export const createAgentSessionBodySchema = z.object({
   prompt: z.string().min(1).max(80_000),
+  agent: z.string().min(1).max(120).optional(),
 })
 
 export type CreateAgentSessionBody = z.infer<typeof createAgentSessionBodySchema>
@@ -10,6 +11,7 @@ export type CreateAgentSessionBody = z.infer<typeof createAgentSessionBodySchema
 /** POST /api/agent/sessions/:id/messages */
 export const appendAgentMessageBodySchema = z.object({
   text: z.string().min(1).max(80_000),
+  agent: z.string().min(1).max(120).optional(),
 })
 
 export type AppendAgentMessageBody = z.infer<typeof appendAgentMessageBodySchema>
@@ -49,4 +51,43 @@ export type AgentSessionLogDto = {
   totalLines: number
   status: string
   exitCode: number | null
+}
+
+export type AgentPresetChoiceDto = {
+  id: string
+  label: string
+  runtime: 'local' | 'cloud'
+}
+
+export const agentPresetBodySchema = z.object({
+  id: z.string().min(1).max(120),
+  label: z.string().min(1).max(120),
+  runtime: z.enum(['local', 'cloud']),
+  promptPrefix: z.string().max(80_000).default(''),
+  local: z
+    .object({
+      cwd: z.string().min(1).max(2000).optional(),
+    })
+    .optional(),
+})
+
+export const patchAgentPresetBodySchema = z.object({
+  label: z.string().min(1).max(120).optional(),
+  runtime: z.enum(['local', 'cloud']).optional(),
+  promptPrefix: z.string().max(80_000).optional(),
+  local: z
+    .object({
+      cwd: z.string().min(1).max(2000).optional(),
+    })
+    .optional(),
+})
+
+export type AgentPresetDto = {
+  id: string
+  label: string
+  runtime: 'local' | 'cloud'
+  promptPrefix: string
+  local?: {
+    cwd?: string
+  }
 }

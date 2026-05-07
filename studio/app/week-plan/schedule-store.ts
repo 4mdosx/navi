@@ -16,7 +16,6 @@ export type PendingCourse = {
   hour: number
 }
 
-/** 已排块 + 拖拽结束时刻 + 周历上的起止时间（本地） */
 export type PlacedCourseBlock = ScheduleBlock & {
   droppedAtMs: number
   rangeStartMs: number
@@ -58,7 +57,6 @@ function computePlacementRangeMs(
 }
 
 type ScheduleStore = {
-  /** 用于把格坐标换算成具体日期时间（与 `CurriculumSchedule` 的 `currentDate` 对齐） */
   weekContaining: Date
   scheduleStartHour: number
   scheduleEndHour: number
@@ -68,12 +66,10 @@ type ScheduleStore = {
   setWeekAnchor: (date: Date) => void
   setScheduleHours: (startHour: number, endHour: number) => void
   setDraggingPayload: (payload: CourseDragPayload | null) => void
-  /** 拖入课表成功：写入 `droppedAtMs`、起止时间；已存在则移动，不存在则从 `pending` 转移 */
   tryCommitDropToSchedule: (
     block: ScheduleBlock,
     droppedAtMs?: number
   ) => boolean
-  /** 从课表移除并回收到待安排 */
   movePlacedBackToPending: (courseId: string) => boolean
   resetDemo: () => void
 }
@@ -85,14 +81,10 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   draggingPayload: null,
   pending: INITIAL_PENDING,
   placed: [],
-
   setWeekAnchor: (date) => set({ weekContaining: new Date(date) }),
-
   setScheduleHours: (startHour, endHour) =>
     set({ scheduleStartHour: startHour, scheduleEndHour: endHour }),
-
   setDraggingPayload: (payload) => set({ draggingPayload: payload }),
-
   tryCommitDropToSchedule: (block, droppedAtMs = Date.now()) => {
     const {
       weekContaining,
@@ -133,7 +125,6 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     })
     return true
   },
-
   movePlacedBackToPending: (courseId) => {
     const { placed, pending } = get()
     const target = placed.find((p) => p.id === courseId)
@@ -155,7 +146,6 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     })
     return true
   },
-
   resetDemo: () =>
     set({
       pending: INITIAL_PENDING,

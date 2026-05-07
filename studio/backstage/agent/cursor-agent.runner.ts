@@ -3,7 +3,6 @@ import 'server-only'
 import {
   Agent,
   CursorAgentError,
-  type AgentOptions,
   type SDKMessage,
 } from '@cursor/sdk'
 import { getDatabase } from '@/backstage/db/database'
@@ -20,75 +19,11 @@ import {
   requestCancel,
   unregisterSession,
 } from '@/backstage/agent/agent-active-registry'
-
-/** Navi 侧策略：写进首轮 prompt，约束分支与推送（与 agent-dashboard.md 一致）。 */
-export function buildNaviAgentPrompt(userPrompt: string): string {
-  return [
-    'You are working in a Navi-managed notes repository.',
-    'Git branch policy: do all edits on branch `agent-dev` only. Do not merge to `main` or push to remote unless the user explicitly asks in this task.',
-    'Prefer small, reviewable changes.',
-    '',
-    'User task:',
-    userPrompt,
-  ].join('\n')
-}
-
-function parseCloudReposFromEnv(): NonNullable<
-  NonNullable<AgentOptions['cloud']>['repos']
-> {
-  const raw = process.env.AGENT_CLOUD_REPOS_JSON?.trim()
-  if (!raw) {
-    throw new Error(
-      'AGENT_CLOUD_REPOS_JSON is required when AGENT_SDK_RUNTIME=cloud (JSON array of { url, startingRef? })'
-    )
-  }
-  const parsed = JSON.parse(raw) as unknown
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error('AGENT_CLOUD_REPOS_JSON must be a non-empty JSON array')
-  }
-  return parsed.map((row) => {
-    const o = row as { url?: string; startingRef?: string }
-    if (!o.url || typeof o.url !== 'string') {
-      throw new Error('Each cloud repo entry must include a string "url"')
-    }
-    return {
-      url: o.url,
-      ...(typeof o.startingRef === 'string' ? { startingRef: o.startingRef } : {}),
-    }
-  })
-}
-
-async function buildAgentOptions(): Promise<AgentOptions> {
-  const apiKey = process.env.CURSOR_API_KEY?.trim()
-  if (!apiKey) {
-    throw new Error('CURSOR_API_KEY is not set')
-  }
-
-  const modelId = process.env.AGENT_CURSOR_MODEL?.trim() || 'composer-2'
-  const runtime = (process.env.AGENT_SDK_RUNTIME ?? 'local').toLowerCase()
-
-  if (runtime === 'cloud') {
-    const repos = parseCloudReposFromEnv()
-    return {
-      apiKey,
-      model: { id: modelId },
-      cloud: {
-        repos,
-        skipReviewerRequest: true,
-      },
-    }
-  }
-
-  const cwd = process.env.AGENT_LOCAL_CWD?.trim() || process.cwd()
-  return {
-    apiKey,
-    model: { id: modelId },
-    local: {
-      cwd,
-      settingSources: [],
-    },
-  }
-}
+import {
+  buildAgentOptionsForPreset,
+  buildPromptWithPreset,
+  resolveAgentPreset,
+} from '@/backstage/agent/agent-config'
 
 async function appendSdkMessage(sessionId: string, msg: SDKMessage): Promise<void> {
   // NDJSON: one SDKMessage per line.
@@ -146,7 +81,8 @@ async function applyRunTerminalState(
  */
 export async function executeCursorAgentSession(
   sessionId: string,
-  prompt: string
+  prompt: string,
+  agentId?: string
 ): Promise<void> {
   registerSessionSlot(sessionId)
   let agent: Awaited<ReturnType<typeof Agent.create>> | undefined
@@ -154,7 +90,7 @@ export async function executeCursorAgentSession(
   const fail = async (message: string, exitCode: number) => {
     await appendSdkMessage(sessionId, {
       type: 'task',
-      agent_id: 'navi',
+      agent_id: agentId ?? 'navi',
       run_id: sessionId,
       text: `[navi] ${message}`,
     })
@@ -162,11 +98,11 @@ export async function executeCursorAgentSession(
   }
 
   try {
-    const options = await buildAgentOptions()
-    const runtime = (process.env.AGENT_SDK_RUNTIME ?? 'local').toLowerCase()
+    const preset = await resolveAgentPreset(agentId)
+    const options = await buildAgentOptionsForPreset(preset)
     agent = await Agent.create(options)
 
-    const fullPrompt = buildNaviAgentPrompt(prompt)
+    const fullPrompt = buildPromptWithPreset(preset, prompt)
     const run = await agent.send(fullPrompt)
 
     attachRun(sessionId, run)
@@ -174,7 +110,7 @@ export async function executeCursorAgentSession(
     await updateAgentSession(sessionId, {
       sdkRunId: run.id,
       sdkAgentId: run.agentId,
-      sdkRuntime: runtime === 'cloud' ? 'cloud' : 'local',
+      sdkRuntime: preset.runtime,
     })
 
     const timeoutMs = parseInt(process.env.AGENT_SESSION_TIMEOUT_MS ?? '0', 10)
@@ -197,7 +133,7 @@ export async function executeCursorAgentSession(
         streamErr instanceof Error ? streamErr.message : String(streamErr)
       await appendSdkMessage(sessionId, {
         type: 'task',
-        agent_id: 'navi',
+        agent_id: agentId ?? 'navi',
         run_id: sessionId,
         text: `[navi stream] ${msg}`,
       })
@@ -254,7 +190,8 @@ export async function executeCursorAgentSession(
  */
 export async function executeCursorAgentFollowUp(
   sessionId: string,
-  text: string
+  text: string,
+  agentId?: string
 ): Promise<void> {
   registerSessionSlot(sessionId)
   let agent: Awaited<ReturnType<typeof Agent.create>> | undefined
@@ -262,7 +199,7 @@ export async function executeCursorAgentFollowUp(
   const fail = async (message: string, exitCode: number) => {
     await appendSdkMessage(sessionId, {
       type: 'task',
-      agent_id: 'navi',
+      agent_id: agentId ?? 'navi',
       run_id: sessionId,
       text: `[navi] ${message}`,
     })
@@ -275,22 +212,31 @@ export async function executeCursorAgentFollowUp(
       await fail('Session not found', 1)
       return
     }
-    if (!row.sdkAgentId) {
-      await fail('Missing sdkAgentId', 1)
-      return
-    }
+    const rawTaskParams = (() => {
+      try {
+        return JSON.parse(row.taskParamsJson || '{}') as { agent?: unknown }
+      } catch {
+        return {} as { agent?: unknown }
+      }
+    })()
+    const sessionAgentId =
+      typeof rawTaskParams.agent === 'string' ? rawTaskParams.agent : undefined
+    const selectedAgentId = agentId ?? sessionAgentId
+    const preset = await resolveAgentPreset(selectedAgentId)
+    const options = await buildAgentOptionsForPreset(preset)
+    const canResume = Boolean(row.sdkAgentId && selectedAgentId === sessionAgentId)
+    agent = canResume
+      ? await Agent.resume(row.sdkAgentId as string, options)
+      : await Agent.create(options)
 
-    const options = await buildAgentOptions()
-    const runtime = (process.env.AGENT_SDK_RUNTIME ?? 'local').toLowerCase()
-    agent = await Agent.resume(row.sdkAgentId, options)
-
-    const run = await agent.send(text)
+    const followUpInput = canResume ? text : buildPromptWithPreset(preset, text)
+    const run = await agent.send(followUpInput)
     attachRun(sessionId, run)
 
     await updateAgentSession(sessionId, {
       sdkRunId: run.id,
       sdkAgentId: run.agentId,
-      sdkRuntime: runtime === 'cloud' ? 'cloud' : 'local',
+      sdkRuntime: preset.runtime,
     })
 
     const timeoutMs = parseInt(process.env.AGENT_SESSION_TIMEOUT_MS ?? '0', 10)
@@ -313,7 +259,7 @@ export async function executeCursorAgentFollowUp(
         streamErr instanceof Error ? streamErr.message : String(streamErr)
       await appendSdkMessage(sessionId, {
         type: 'task',
-        agent_id: 'navi',
+        agent_id: agentId ?? 'navi',
         run_id: sessionId,
         text: `[navi stream] ${msg}`,
       })

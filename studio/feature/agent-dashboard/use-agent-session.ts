@@ -3,7 +3,13 @@
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { AgentSessionMeta, AgentLogResponse } from '@/feature/agent-dashboard/types'
+import type {
+  AgentConfigResponse,
+  AgentLogResponse,
+  AgentPreset,
+  AgentPresetChoice,
+  AgentSessionMeta,
+} from '@/feature/agent-dashboard/types'
 
 const POLL_VISIBLE_MS = 300
 const POLL_HIDDEN_MS = 2500
@@ -51,6 +57,10 @@ export function useAgentSession() {
   const [sending, setSending] = useState(false)
   const [aborting, setAborting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [agents, setAgents] = useState<AgentPresetChoice[]>([])
+  const [presets, setPresets] = useState<AgentPreset[]>([])
+  const [selectedCreateAgent, setSelectedCreateAgent] = useState<string>('')
+  const [selectedChatAgent, setSelectedChatAgent] = useState<string>('')
 
   const nextStartLineRef = useRef(0)
   const currentPollMsRef = useRef<number>(POLL_VISIBLE_MS)
@@ -84,6 +94,30 @@ export function useAgentSession() {
   useEffect(() => {
     void refreshSessions()
   }, [refreshSessions])
+
+  const refreshAgentConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agent/config', { credentials: 'include' })
+      if (redirectIfUnauthorized(res)) return
+      const data = await parseJson<AgentConfigResponse>(res)
+      if (!res.ok || !('agents' in data)) return
+      const cfg = data as AgentConfigResponse
+      setAgents(cfg.agents)
+      setPresets(cfg.presets ?? [])
+      if (!selectedCreateAgent) {
+        setSelectedCreateAgent(cfg.defaultAgent)
+      }
+      if (!selectedChatAgent) {
+        setSelectedChatAgent(cfg.defaultAgent)
+      }
+    } catch {
+      // keep silent and fallback to backend default
+    }
+  }, [redirectIfUnauthorized, selectedChatAgent, selectedCreateAgent])
+
+  useEffect(() => {
+    void refreshAgentConfig()
+  }, [refreshAgentConfig])
 
   const selectSession = useCallback(
     (id: string | null) => {
@@ -252,7 +286,7 @@ export function useAgentSession() {
   }, [])
 
   const createSession = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, agent?: string) => {
       setCreating(true)
       setError(null)
       try {
@@ -260,7 +294,7 @@ export function useAgentSession() {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({ prompt, ...(agent ? { agent } : {}) }),
         })
         if (redirectIfUnauthorized(res)) return
         const data = await parseJson<{ id: string; status: string }>(res)
@@ -282,7 +316,7 @@ export function useAgentSession() {
   )
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, agent?: string) => {
       const id = selectedId
       if (!id) return
       if (sending) return
@@ -318,7 +352,7 @@ export function useAgentSession() {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text, ...(agent ? { agent } : {}) }),
         })
         if (redirectIfUnauthorized(res)) return
         const data = await parseJson<{ ok?: boolean; error?: string }>(res)
@@ -360,7 +394,102 @@ export function useAgentSession() {
     }
   }, [selectedId, refreshSessions, redirectIfUnauthorized])
 
+  const createAgentPreset = useCallback(
+    async (payload: {
+      id: string
+      label: string
+      runtime: 'local' | 'cloud'
+      promptPrefix: string
+      local?: { cwd?: string }
+    }) => {
+      setError(null)
+      const res = await fetch('/api/agent/config', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (redirectIfUnauthorized(res)) return false
+      const data = await parseJson<{ ok?: boolean; error?: string }>(res)
+      if (!res.ok) {
+        setError((data as { error?: string }).error ?? `HTTP ${res.status}`)
+        return false
+      }
+      await refreshAgentConfig()
+      return true
+    },
+    [redirectIfUnauthorized, refreshAgentConfig]
+  )
+
+  const updateAgentPreset = useCallback(
+    async (
+      id: string,
+      payload: Partial<{
+        label: string
+        runtime: 'local' | 'cloud'
+        promptPrefix: string
+        local: { cwd?: string }
+      }>
+    ) => {
+      setError(null)
+      const res = await fetch(`/api/agent/config/${id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (redirectIfUnauthorized(res)) return false
+      const data = await parseJson<{ ok?: boolean; error?: string }>(res)
+      if (!res.ok) {
+        setError((data as { error?: string }).error ?? `HTTP ${res.status}`)
+        return false
+      }
+      await refreshAgentConfig()
+      return true
+    },
+    [redirectIfUnauthorized, refreshAgentConfig]
+  )
+
+  const deleteAgentPreset = useCallback(
+    async (id: string) => {
+      setError(null)
+      const res = await fetch(`/api/agent/config/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      if (redirectIfUnauthorized(res)) return false
+      const data = await parseJson<{ ok?: boolean; error?: string }>(res)
+      if (!res.ok) {
+        setError((data as { error?: string }).error ?? `HTTP ${res.status}`)
+        return false
+      }
+      await refreshAgentConfig()
+      return true
+    },
+    [redirectIfUnauthorized, refreshAgentConfig]
+  )
+
+  const resetAgentPresetsToDefault = useCallback(async () => {
+    setError(null)
+    const res = await fetch('/api/agent/config/reset-default', {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (redirectIfUnauthorized(res)) return false
+    const data = await parseJson<{ ok?: boolean; error?: string }>(res)
+    if (!res.ok) {
+      setError((data as { error?: string }).error ?? `HTTP ${res.status}`)
+      return false
+    }
+    await refreshAgentConfig()
+    return true
+  }, [redirectIfUnauthorized, refreshAgentConfig])
+
   return {
+    agents,
+    presets,
+    selectedCreateAgent,
+    selectedChatAgent,
     sessions,
     selectedId,
     status,
@@ -373,8 +502,15 @@ export function useAgentSession() {
     error,
     refreshSessions,
     selectSession,
+    setSelectedCreateAgent,
+    setSelectedChatAgent,
     createSession,
     sendMessage,
     abortSession,
+    refreshAgentConfig,
+    createAgentPreset,
+    updateAgentPreset,
+    deleteAgentPreset,
+    resetAgentPresetsToDefault,
   }
 }

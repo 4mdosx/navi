@@ -38,15 +38,12 @@ export async function POST(
   if (row.status === 'running') {
     return NextResponse.json({ error: 'Session is running' }, { status: 409 })
   }
-  if (!row.sdkAgentId) {
-    return NextResponse.json({ error: 'Session is missing sdkAgentId' }, { status: 400 })
-  }
 
   // Mark as running for this follow-up turn.
   await updateAgentSession(id, { status: 'running', endedAt: null, exitCode: null })
 
   after(() => {
-    void executeCursorAgentFollowUp(id, parsed.data.text).catch((err) => {
+    void executeCursorAgentFollowUp(id, parsed.data.text, parsed.data.agent).catch((err) => {
       console.error('[api/agent/sessions/[id]/messages] background run', id, err)
     })
   })

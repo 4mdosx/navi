@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import type { AgentPresetChoice } from '@/feature/agent-dashboard/types'
 import type { ConversationTurn } from '@/feature/agent-dashboard/use-agent-session'
 import { formatSdkMessageForTerminal } from '@/feature/agent-dashboard/sdk-message-format'
 import { cn } from '@/lib/utils'
@@ -12,9 +13,12 @@ export function AgentChat(props: {
   turns: ConversationTurn[]
   disabled?: boolean
   sending?: boolean
+  agentOptions?: AgentPresetChoice[]
+  selectedAgent?: string
+  onAgentChange?: (agentId: string) => void
   onSend: (text: string) => void | Promise<void>
 }) {
-  const { turns, disabled, sending, onSend } = props
+  const { turns, disabled, sending, agentOptions, selectedAgent, onAgentChange, onSend } = props
   const scrollRef = useRef<HTMLDivElement>(null)
   const [text, setText] = useState('')
 
@@ -77,6 +81,19 @@ export function AgentChat(props: {
         }}
       >
         <div className="flex items-end gap-2">
+          <select
+            value={selectedAgent ?? ''}
+            onChange={(e) => onAgentChange?.(e.target.value)}
+            disabled={disabled || sending || !agentOptions || agentOptions.length === 0}
+            className="h-9 shrink-0 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground"
+            title="选择本轮消息使用的 Agent"
+          >
+            {(agentOptions ?? []).map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
+              </option>
+            ))}
+          </select>
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}

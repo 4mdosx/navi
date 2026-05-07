@@ -36,4 +36,13 @@ export interface Database {
     createdAt: string
     logBlob: string
   }
+  agent_presets: {
+    id: string
+    label: string
+    runtime: string
+    promptPrefix: string
+    localCwd: string | null
+    createdAt: string
+    updatedAt: string
+  }
 }

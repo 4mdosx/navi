@@ -19,3 +19,25 @@ export type AgentLogResponse = {
   status: string
   exitCode: number | null
 }
+
+export type AgentPresetChoice = {
+  id: string
+  label: string
+  runtime: 'local' | 'cloud'
+}
+
+export type AgentPreset = {
+  id: string
+  label: string
+  runtime: 'local' | 'cloud'
+  promptPrefix: string
+  local?: {
+    cwd?: string
+  }
+}
+
+export type AgentConfigResponse = {
+  defaultAgent: string
+  agents: AgentPresetChoice[]
+  presets: AgentPreset[]
+}

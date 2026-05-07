@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 数据库初始化脚本：创建 settings / projects / project_todos / agent_sessions。
+ * 数据库初始化脚本：创建 settings / projects / project_todos / agent_sessions / agent_presets。
  * `agent_sessions` 每次 init 会先 **DROP** 再建表（仅清空 Agent 会话；projects 等不受影响）。
  *
  * 用法:
@@ -85,6 +85,34 @@ function initializeDatabase(): void {
     sqlite.exec(`
       CREATE INDEX IF NOT EXISTS idx_agent_sessions_sdkRunId
       ON agent_sessions(sdkRunId)
+    `)
+
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS agent_presets (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        runtime TEXT NOT NULL,
+        promptPrefix TEXT NOT NULL DEFAULT '',
+        localCwd TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `)
+
+    const now = new Date().toISOString()
+    const defaultPromptPrefix =
+      'You are working in a Navi-managed notes repository.\nGit branch policy: do all edits on branch `agent-dev` only.'
+    sqlite.exec(`
+      INSERT INTO agent_presets (id, label, runtime, promptPrefix, localCwd, createdAt, updatedAt)
+      SELECT
+        'navi-local',
+        'Navi Local',
+        'local',
+        '${defaultPromptPrefix.replaceAll("'", "''")}',
+        '/Users/token/Workshop/navi',
+        '${now}',
+        '${now}'
+      WHERE NOT EXISTS (SELECT 1 FROM agent_presets)
     `)
 
     console.log('✓ Database initialized successfully')
