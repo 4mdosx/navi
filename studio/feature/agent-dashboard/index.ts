@@ -1,5 +1,5 @@
 export { AgentDashboard } from './agent-dashboard'
-export { AgentTerminal } from './agent-terminal'
-export type { AgentTerminalHandle } from './agent-terminal'
+export { AgentChat } from './agent-terminal'
 export { useAgentSession } from './use-agent-session'
 export type { AgentSessionMeta, AgentLogResponse } from './types'
+export type { ConversationTurn } from './use-agent-session'

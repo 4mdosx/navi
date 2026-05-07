@@ -5,7 +5,6 @@ import {
   CursorAgentError,
   type AgentOptions,
   type SDKMessage,
-  type ToolUseBlock,
 } from '@cursor/sdk'
 import { getDatabase } from '@/backstage/db/database'
 import {
@@ -91,37 +90,9 @@ async function buildAgentOptions(): Promise<AgentOptions> {
   }
 }
 
-function formatSdkMessage(msg: SDKMessage): string {
-  switch (msg.type) {
-    case 'assistant': {
-      let out = ''
-      for (const block of msg.message.content) {
-        if (block.type === 'text') {
-          out += block.text
-        } else {
-          const t = block as ToolUseBlock
-          out += `\n[tool ${t.name}]\n`
-        }
-      }
-      return out
-    }
-    case 'thinking':
-      return msg.text ? `\n[thinking] ${msg.text}\n` : ''
-    case 'tool_call':
-      return `\n[tool_call ${msg.name} ${msg.status}]\n`
-    case 'user':
-      return msg.message.content.map((b) => b.text).join('')
-    case 'status':
-      return `\n[status ${msg.status}]${msg.message ? ` ${msg.message}` : ''}\n`
-    case 'system':
-      return ''
-    case 'request':
-      return ''
-    case 'task':
-      return msg.text ? `\n[task] ${msg.text}\n` : ''
-    default:
-      return ''
-  }
+async function appendSdkMessage(sessionId: string, msg: SDKMessage): Promise<void> {
+  // NDJSON: one SDKMessage per line.
+  await appendAgentSessionLog(sessionId, `${JSON.stringify(msg)}\n`)
 }
 
 async function countRunningSessions(): Promise<number> {
@@ -181,7 +152,12 @@ export async function executeCursorAgentSession(
   let agent: Awaited<ReturnType<typeof Agent.create>> | undefined
 
   const fail = async (message: string, exitCode: number) => {
-    await appendAgentSessionLog(sessionId, `\n[navi] ${message}\n`)
+    await appendSdkMessage(sessionId, {
+      type: 'task',
+      agent_id: 'navi',
+      run_id: sessionId,
+      text: `[navi] ${message}`,
+    })
     await applyRunTerminalState(sessionId, 'failed', exitCode)
   }
 
@@ -214,15 +190,133 @@ export async function executeCursorAgentSession(
           await run.cancel()
           break
         }
-        const chunk = formatSdkMessage(msg)
-        if (chunk) {
-          await appendAgentSessionLog(sessionId, chunk)
-        }
+        await appendSdkMessage(sessionId, msg)
       }
     } catch (streamErr) {
       const msg =
         streamErr instanceof Error ? streamErr.message : String(streamErr)
-      await appendAgentSessionLog(sessionId, `\n[navi stream] ${msg}\n`)
+      await appendSdkMessage(sessionId, {
+        type: 'task',
+        agent_id: 'navi',
+        run_id: sessionId,
+        text: `[navi stream] ${msg}`,
+      })
+    }
+
+    const result = await run.wait()
+    const cur = await getAgentSessionById(sessionId)
+    if (!cur || cur.status !== 'running') {
+      return
+    }
+
+    if (result.status === 'error') {
+      await updateAgentSession(sessionId, {
+        status: 'failed',
+        endedAt: new Date().toISOString(),
+        exitCode: exitCodeForRunResult('error'),
+      })
+    } else if (result.status === 'cancelled') {
+      await updateAgentSession(sessionId, {
+        status: 'finished',
+        endedAt: new Date().toISOString(),
+        exitCode: exitCodeForRunResult('cancelled'),
+      })
+    } else {
+      await updateAgentSession(sessionId, {
+        status: 'finished',
+        endedAt: new Date().toISOString(),
+        exitCode: exitCodeForRunResult('finished'),
+      })
+    }
+  } catch (err) {
+    if (err instanceof CursorAgentError) {
+      await fail(`SDK error: ${err.message}`, 1)
+    } else if (err instanceof Error) {
+      await fail(err.message, 1)
+    } else {
+      await fail('Unknown error', 1)
+    }
+  } finally {
+    unregisterSession(sessionId)
+    if (agent) {
+      try {
+        await agent[Symbol.asyncDispose]()
+      } catch {
+        agent.close()
+      }
+    }
+  }
+}
+
+/**
+ * 追加一条用户 follow-up 消息到同一个 session（复用 sdkAgentId）。
+ * 每次 follow-up 会创建一个新的 run，并将事件继续追加到同一份 logBlob。
+ */
+export async function executeCursorAgentFollowUp(
+  sessionId: string,
+  text: string
+): Promise<void> {
+  registerSessionSlot(sessionId)
+  let agent: Awaited<ReturnType<typeof Agent.create>> | undefined
+
+  const fail = async (message: string, exitCode: number) => {
+    await appendSdkMessage(sessionId, {
+      type: 'task',
+      agent_id: 'navi',
+      run_id: sessionId,
+      text: `[navi] ${message}`,
+    })
+    await applyRunTerminalState(sessionId, 'failed', exitCode)
+  }
+
+  try {
+    const row = await getAgentSessionById(sessionId)
+    if (!row) {
+      await fail('Session not found', 1)
+      return
+    }
+    if (!row.sdkAgentId) {
+      await fail('Missing sdkAgentId', 1)
+      return
+    }
+
+    const options = await buildAgentOptions()
+    const runtime = (process.env.AGENT_SDK_RUNTIME ?? 'local').toLowerCase()
+    agent = await Agent.resume(row.sdkAgentId, options)
+
+    const run = await agent.send(text)
+    attachRun(sessionId, run)
+
+    await updateAgentSession(sessionId, {
+      sdkRunId: run.id,
+      sdkAgentId: run.agentId,
+      sdkRuntime: runtime === 'cloud' ? 'cloud' : 'local',
+    })
+
+    const timeoutMs = parseInt(process.env.AGENT_SESSION_TIMEOUT_MS ?? '0', 10)
+    if (!Number.isNaN(timeoutMs) && timeoutMs > 0) {
+      setTimeout(() => {
+        void cancelRunIfPossible(sessionId)
+      }, timeoutMs)
+    }
+
+    try {
+      for await (const msg of run.stream()) {
+        if (isCancelRequested(sessionId) && run.supports('cancel')) {
+          await run.cancel()
+          break
+        }
+        await appendSdkMessage(sessionId, msg)
+      }
+    } catch (streamErr) {
+      const msg =
+        streamErr instanceof Error ? streamErr.message : String(streamErr)
+      await appendSdkMessage(sessionId, {
+        type: 'task',
+        agent_id: 'navi',
+        run_id: sessionId,
+        text: `[navi stream] ${msg}`,
+      })
     }
 
     const result = await run.wait()

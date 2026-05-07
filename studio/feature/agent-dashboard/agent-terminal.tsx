@@ -1,82 +1,103 @@
 'use client'
 
-import { FitAddon } from '@xterm/addon-fit'
-import { Terminal } from '@xterm/xterm'
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-} from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import '@xterm/xterm/css/xterm.css'
+import type { ConversationTurn } from '@/feature/agent-dashboard/use-agent-session'
+import { formatSdkMessageForTerminal } from '@/feature/agent-dashboard/sdk-message-format'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 
-export type AgentTerminalHandle = {
-  write: (chunk: string) => void
-  clear: () => void
-  fit: () => void
-}
+export function AgentChat(props: {
+  turns: ConversationTurn[]
+  disabled?: boolean
+  sending?: boolean
+  onSend: (text: string) => void | Promise<void>
+}) {
+  const { turns, disabled, sending, onSend } = props
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [text, setText] = useState('')
 
-export const AgentTerminal = forwardRef<AgentTerminalHandle, object>(
-  function AgentTerminal(_props, ref) {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const termRef = useRef<Terminal | null>(null)
-    const fitRef = useRef<FitAddon | null>(null)
-
-    useImperativeHandle(ref, () => ({
-      write: (chunk: string) => {
-        termRef.current?.write(chunk)
-      },
-      clear: () => {
-        termRef.current?.clear()
-      },
-      fit: () => {
-        fitRef.current?.fit()
-      },
+  const rendered = useMemo(() => {
+    return turns.map((t) => ({
+      role: t.role,
+      text: t.events.map((ev) => formatSdkMessageForTerminal(ev)).join('').trim(),
+      done: t.done,
     }))
+  }, [turns])
 
-    useEffect(() => {
-      const el = containerRef.current
-      if (!el) return
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [rendered.length])
 
-      const term = new Terminal({
-        disableStdin: true,
-        cursorBlink: false,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-        fontSize: 12,
-        theme: {
-          background: '#0a0a0a',
-          foreground: '#e4e4e7',
-        },
-        allowProposedApi: true,
-      })
-      const fit = new FitAddon()
-      term.loadAddon(fit)
-      term.open(el)
-      fit.fit()
-      termRef.current = term
-      fitRef.current = fit
-
-      const ro = new ResizeObserver(() => {
-        fit.fit()
-      })
-      ro.observe(el)
-
-      return () => {
-        ro.disconnect()
-        term.dispose()
-        termRef.current = null
-        fitRef.current = null
-      }
-    }, [])
-
-    return (
+  return (
+    <div className="flex h-full min-h-[12rem] w-full min-w-0 flex-col overflow-hidden rounded-md border border-border bg-background">
       <div
-        ref={containerRef}
-        className="h-full min-h-[12rem] w-full min-w-0 overflow-hidden rounded-md border border-neutral-200 bg-neutral-950 dark:border-neutral-800"
-      />
-    )
-  }
-)
+        ref={scrollRef}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
+      >
+        {rendered.length === 0 ? (
+          <div className="text-sm text-muted-foreground">暂无消息</div>
+        ) : (
+          rendered.map((t, i) => (
+            <div
+              key={i}
+              className={cn(
+                'flex w-full',
+                t.role === 'user' ? 'justify-end' : 'justify-start'
+              )}
+            >
+              <div
+                className={cn(
+                  'max-w-[92%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed sm:max-w-[80%]',
+                  t.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-foreground',
+                  t.done === false && t.role === 'agent' && 'ring-1 ring-amber-500/40'
+                )}
+              >
+                {t.text.length > 0 ? t.text : (
+                  <span className="text-muted-foreground">(empty)</span>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
 
-AgentTerminal.displayName = 'AgentTerminal'
+      <form
+        className="shrink-0 border-t border-border p-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const v = text.trim()
+          if (!v) return
+          void Promise.resolve(onSend(v)).then(() => setText(''))
+        }}
+      >
+        <div className="flex items-end gap-2">
+          <Textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={disabled ? '选择会话后开始对话…' : '输入消息，回车发送（Shift+Enter 换行）'}
+            rows={2}
+            disabled={disabled || sending}
+            className="min-h-[2.5rem] resize-none text-sm"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                const v = text.trim()
+                if (!v) return
+                void Promise.resolve(onSend(v)).then(() => setText(''))
+              }
+            }}
+          />
+          <Button type="submit" disabled={disabled || sending || !text.trim()}>
+            {sending ? '发送中' : '发送'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}

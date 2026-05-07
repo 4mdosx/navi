@@ -7,6 +7,13 @@ export const createAgentSessionBodySchema = z.object({
 
 export type CreateAgentSessionBody = z.infer<typeof createAgentSessionBodySchema>
 
+/** POST /api/agent/sessions/:id/messages */
+export const appendAgentMessageBodySchema = z.object({
+  text: z.string().min(1).max(80_000),
+})
+
+export type AppendAgentMessageBody = z.infer<typeof appendAgentMessageBodySchema>
+
 /** GET /api/agent/sessions/:id/log */
 export const agentLogQuerySchema = z.object({
   startLine: z.coerce.number().int().min(0).default(0),
@@ -31,7 +38,12 @@ export type AgentSessionMetaDto = {
 
 /** GET log 响应 */
 export type AgentSessionLogDto = {
-  text: string
+  /**
+   * NDJSON lines parsed as JSON values.
+   * Each entry is expected to be a `SDKMessage` (from `@cursor/sdk`), but the server
+   * intentionally stays permissive to allow forward-compatible message shapes.
+   */
+  events: unknown[]
   startLine: number
   nextStartLine: number
   totalLines: number

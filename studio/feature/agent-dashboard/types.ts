@@ -12,7 +12,7 @@ export type AgentSessionMeta = {
 }
 
 export type AgentLogResponse = {
-  text: string
+  events: unknown[]
   startLine: number
   nextStartLine: number
   totalLines: number

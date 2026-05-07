@@ -1,10 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Bot, ChevronLeft, Loader2, RefreshCw, Square } from 'lucide-react'
 
-import { AgentTerminal, type AgentTerminalHandle } from '@/feature/agent-dashboard/agent-terminal'
+import { AgentChat } from '@/feature/agent-dashboard/agent-terminal'
 import { useAgentSession } from '@/feature/agent-dashboard/use-agent-session'
 import { Button } from '@/components/ui/button'
 import {
@@ -18,7 +18,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
 export function AgentDashboard() {
-  const terminalRef = useRef<AgentTerminalHandle>(null)
   const [prompt, setPrompt] = useState('')
 
   const {
@@ -26,15 +25,18 @@ export function AgentDashboard() {
     selectedId,
     status,
     exitCode,
+    turns,
     loadingList,
     creating,
+    sending,
     aborting,
     error,
     refreshSessions,
     selectSession,
     createSession,
+    sendMessage,
     abortSession,
-  } = useAgentSession(terminalRef)
+  } = useAgentSession()
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -212,14 +214,22 @@ export function AgentDashboard() {
 
           <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <CardHeader className="shrink-0 py-3">
-              <CardTitle className="text-sm">输出</CardTitle>
+              <CardTitle className="text-sm">对话</CardTitle>
               <CardDescription className="text-xs">
-                只读终端视图；轮询拉取日志（标签页隐藏时降频）
+                Chat 视图；轮询拉取日志（标签页隐藏时降频）
               </CardDescription>
             </CardHeader>
             <CardContent className="min-h-0 flex-1 p-2 pt-0 sm:p-3 sm:pt-0">
               <div className="h-full min-h-[12rem] w-full">
-                <AgentTerminal ref={terminalRef} />
+                <AgentChat
+                  turns={turns}
+                  disabled={!selectedId}
+                  sending={sending}
+                  onSend={async (text) => {
+                    if (!selectedId) return
+                    await sendMessage(text)
+                  }}
+                />
               </div>
             </CardContent>
           </Card>

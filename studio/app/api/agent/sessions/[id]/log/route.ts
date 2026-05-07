@@ -33,13 +33,25 @@ export async function GET(
 
     const logBlob = row.logBlob ?? ''
     const lines = logBlob.length === 0 ? [] : logBlob.split('\n')
-    const totalLines = lines.length
+    // If logBlob ends with '\n', split() includes a trailing empty item.
+    const effectiveLines = lines.length > 0 && lines[lines.length - 1] === '' ? lines.slice(0, -1) : lines
+    const totalLines = effectiveLines.length
     const end = Math.min(startLine + lineLimit, totalLines)
-    const slice = lines.slice(startLine, end)
-    const text = slice.join('\n')
+    const slice = effectiveLines.slice(startLine, end)
+    const events = slice
+      .map((line) => {
+        if (!line) return undefined
+        try {
+          return JSON.parse(line) as unknown
+        } catch {
+          // Forward-compat / migration: tolerate legacy plain-text lines.
+          return { type: 'legacy_text', text: line }
+        }
+      })
+      .filter((x): x is unknown => x !== undefined)
 
     const res = {
-      text,
+      events,
       startLine,
       nextStartLine: end,
       totalLines,
