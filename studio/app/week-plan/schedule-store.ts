@@ -5,13 +5,16 @@ import type {
 } from '@/feature/curriculum-schedule'
 import {
   addLocalDays,
-  getHourRange,
+  getSlotRange,
   getSundayOfWeekContaining,
+  SCHEDULE_SLOT_MINUTES,
+  SCHEDULE_SLOTS_PER_HOUR,
 } from '@/feature/curriculum-schedule'
 
 export type PendingCourse = {
   id: string
   title: string
+  /** 预览用纵向格数（按小时）；拖入课表时 ×4 转为 15 分钟格 */
   day: number
   hour: number
 }
@@ -45,14 +48,22 @@ function computePlacementRangeMs(
   scheduleEndHour: number,
   block: ScheduleBlock
 ): { rangeStartMs: number; rangeEndMs: number } {
-  const hours = getHourRange(scheduleStartHour, scheduleEndHour)
+  const slots = getSlotRange(
+    scheduleStartHour,
+    scheduleEndHour,
+    SCHEDULE_SLOT_MINUTES
+  )
   const sunday = getSundayOfWeekContaining(weekContaining)
   const dayDate = addLocalDays(sunday, block.dayIndex)
-  const startHour = hours[block.rowStart]
+  const slot = slots[block.rowStart]
   const rangeStart = new Date(dayDate)
-  rangeStart.setHours(startHour, 0, 0, 0)
+  if (slot) {
+    rangeStart.setHours(slot.hour, slot.minute, 0, 0)
+  } else {
+    rangeStart.setHours(scheduleStartHour, 0, 0, 0)
+  }
   const rangeEnd = new Date(rangeStart)
-  rangeEnd.setHours(rangeEnd.getHours() + block.rowSpan)
+  rangeEnd.setMinutes(rangeEnd.getMinutes() + block.rowSpan * SCHEDULE_SLOT_MINUTES)
   return { rangeStartMs: rangeStart.getTime(), rangeEndMs: rangeEnd.getTime() }
 }
 
@@ -76,8 +87,8 @@ type ScheduleStore = {
 
 export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   weekContaining: new Date(),
-  scheduleStartHour: 9,
-  scheduleEndHour: 23,
+  scheduleStartHour: 8,
+  scheduleEndHour: 22,
   draggingPayload: null,
   pending: INITIAL_PENDING,
   placed: [],
@@ -138,7 +149,7 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
             {
               id: target.id,
               title: target.title,
-              day: target.rowSpan,
+              day: target.rowSpan / SCHEDULE_SLOTS_PER_HOUR,
               hour: target.colSpan,
             },
             ...pending,

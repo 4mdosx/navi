@@ -1,13 +1,16 @@
 'use client'
 
-import { useState, type DragEvent } from 'react'
+import { Fragment, useState, type DragEvent } from 'react'
 import {
   CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM,
   CURRICULUM_SCHEDULE_ROW_MIN_WIDTH_PX,
+  CURRICULUM_SCHEDULE_TIME_GUTTER_REM,
+  SCHEDULE_SLOT_MINUTES,
 } from './grid-dimensions'
 import type { CourseDragPayload, ScheduleBlock } from './types'
 import {
-  getHourRange,
+  getCurrentSlotIndexInRange,
+  getSlotRange,
   getSundayOfWeekContaining,
   getWeekDaysFromSunday,
 } from './utils'
@@ -32,9 +35,13 @@ export interface CurriculumScheduleProps {
   onDropOutsideSchedule?: (courseId: string) => void
 }
 
-function formatHourLabel(hour: number, locale?: string): string {
+function formatSlotLabel(
+  hour: number,
+  minute: number,
+  locale?: string
+): string {
   const d = new Date()
-  d.setHours(hour, 0, 0, 0)
+  d.setHours(hour, minute, 0, 0)
   return new Intl.DateTimeFormat(locale, {
     hour: 'numeric',
     minute: '2-digit',
@@ -47,7 +54,16 @@ function formatDayHeader(date: Date, locale?: string): string {
   }).format(date)
 }
 
-const CELL_MIN_HEIGHT = `${CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM}rem`
+const CELL_HEIGHT = `${CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM}rem`
+const TIME_GUTTER = `${CURRICULUM_SCHEDULE_TIME_GUTTER_REM}rem`
+
+function slotRowBorderClass(isHourBoundary: boolean, isFirstSlot: boolean): string {
+  const slotDivider = 'border-b border-b-neutral-100 dark:border-b-neutral-800/60'
+  if (isHourBoundary && !isFirstSlot) {
+    return `border-t border-t-neutral-300 dark:border-t-neutral-600 ${slotDivider}`
+  }
+  return slotDivider
+}
 
 function sameLocalCalendarDate(a: Date, b: Date): boolean {
   return (
@@ -143,7 +159,7 @@ function ScheduleBlocksOverlay({
                 source: 'placed',
                 id: b.id,
                 title: b.title,
-                rowSpan: b.rowSpan,
+                rowSpan: b.placementRowSpan ?? b.rowSpan,
                 colSpan: b.colSpan,
               } satisfies CourseDragPayload
               const payload = JSON.stringify(payloadObj)
@@ -162,7 +178,7 @@ function ScheduleBlocksOverlay({
             style={{
               left: `${(b.dayIndex / 7) * 100}%`,
               width: `${(b.colSpan / 7) * 100}%`,
-              top: `calc(${cell}rem * ${1 + b.rowStart})`,
+              top: `calc(${cell}rem * ${b.rowStart})`,
               height: `calc(${cell}rem * ${b.rowSpan})`,
             }}
           >
@@ -189,7 +205,7 @@ function ScheduleBlocksOverlay({
   )
 }
 
-/** Weekly grid: columns Sun→Sat, rows per hour between startHour and endHour. */
+/** Weekly grid: columns Sun→Sat, rows per 15-minute slot between startHour and endHour. */
 export function CurriculumSchedule({
   currentDate,
   current,
@@ -204,12 +220,12 @@ export function CurriculumSchedule({
 }: CurriculumScheduleProps) {
   const sunday = getSundayOfWeekContaining(currentDate)
   const weekDays = getWeekDaysFromSunday(sunday)
-  const hours = getHourRange(startHour, endHour)
-  const rowCount = hours.length
-  const todayInThisWeek =
-    current != null &&
-    weekDays.some((d) => sameLocalCalendarDate(d, current))
-  const currentHour = current?.getHours()
+  const slots = getSlotRange(startHour, endHour, SCHEDULE_SLOT_MINUTES)
+  const rowCount = slots.length
+  const currentSlotIndex =
+    current != null
+      ? getCurrentSlotIndexInRange(current, startHour, endHour, SCHEDULE_SLOT_MINUTES)
+      : null
   const [placedDragPayload, setPlacedDragPayload] =
     useState<CourseDragPayload | null>(null)
   const [dropPreview, setDropPreview] = useState<DropPreview | null>(null)
@@ -261,115 +277,127 @@ export function CurriculumSchedule({
       }
     >
       <div
-        className="flex"
+        className="relative"
         style={{ minWidth: CURRICULUM_SCHEDULE_ROW_MIN_WIDTH_PX }}
+        onDragLeave={(e) => {
+          const next = e.relatedTarget as Node | null
+          if (!next || !e.currentTarget.contains(next)) {
+            setDropPreview(null)
+          }
+        }}
       >
-        <div className="flex w-14 shrink-0 flex-col border-r border-neutral-200 dark:border-neutral-800">
-          <div
-            className="sticky left-0 top-0 z-30 shrink-0 border-b border-neutral-200 bg-background px-1 py-2 text-xs text-neutral-500 dark:border-neutral-800"
-            style={{ minHeight: CELL_MIN_HEIGHT }}
-          />
-          {hours.map((h) => {
-            const isNowHourRow =
-              todayInThisWeek &&
-              currentHour != null &&
-              h === currentHour
-            return (
-              <div
-                key={h}
-                className={
-                  'sticky left-0 z-20 flex shrink-0 items-start justify-end border-b border-neutral-200 bg-background px-1 py-1 text-xs tabular-nums dark:border-neutral-800 ' +
-                  (isNowHourRow
-                    ? 'border-l-2 border-l-blue-600 pl-0.5 font-medium text-blue-700 dark:border-l-blue-400 dark:text-blue-300'
-                    : 'text-neutral-500')
-                }
-                style={{ minHeight: CELL_MIN_HEIGHT }}
-              >
-                {formatHourLabel(h, locale)}
-              </div>
-            )
-          })}
-        </div>
-
         <div
-          className="relative flex min-w-0 flex-1"
-          onDragLeave={(e) => {
-            const next = e.relatedTarget as Node | null
-            if (!next || !e.currentTarget.contains(next)) {
-              setDropPreview(null)
-            }
+          className="grid"
+          style={{
+            gridTemplateColumns: `${TIME_GUTTER} repeat(7, minmax(0, 1fr))`,
+            gridAutoRows: CELL_HEIGHT,
           }}
         >
-          <div className="flex min-w-0 flex-1">
-            {weekDays.map((day, dayIndex) => (
-              <div
-                key={day.toISOString()}
-                className="flex min-w-0 flex-1 flex-col border-r border-neutral-200 last:border-r-0 dark:border-neutral-800"
-              >
+          <div
+            className="sticky left-0 top-0 z-30 box-border border-b border-neutral-200 bg-background dark:border-neutral-800"
+            style={{ gridColumn: 1, gridRow: 1 }}
+          />
+
+          {weekDays.map((day, dayIndex) => (
+            <div
+              key={day.toISOString()}
+              className={
+                'sticky top-0 z-20 box-border flex items-center justify-center border-b-2 border-neutral-200 bg-background px-1 text-center text-xs font-medium dark:border-neutral-800 ' +
+                (current != null && sameLocalCalendarDate(day, current)
+                  ? 'text-blue-800 dark:text-blue-200'
+                  : '')
+              }
+              style={{ gridColumn: dayIndex + 2, gridRow: 1 }}
+            >
+              {formatDayHeader(day, locale)}
+            </div>
+          ))}
+
+          {slots.map((slot, rowIndex) => {
+            const gridRow = rowIndex + 2
+            const isHourBoundary = slot.minute === 0
+            const isFirstSlot = rowIndex === 0
+            const borderClass = slotRowBorderClass(isHourBoundary, isFirstSlot)
+            const isNowSlotRow = currentSlotIndex === slot.index
+
+            return (
+              <Fragment key={`${slot.hour}-${slot.minute}`}>
                 <div
                   className={
-                    'sticky top-0 z-20 shrink-0 border-b border-neutral-200 bg-background px-1 py-2 text-center text-xs font-medium dark:border-neutral-800 ' +
-                    (current != null && sameLocalCalendarDate(day, current)
-                      ? 'border-b-2 border-b-blue-600 text-blue-800 dark:border-b-blue-400 dark:text-blue-200'
-                      : '')
+                    'sticky left-0 z-20 box-border flex items-start justify-end border-b bg-background px-1 text-[10px] tabular-nums dark:border-neutral-800 ' +
+                    borderClass +
+                    (isNowSlotRow
+                      ? ' font-medium text-blue-700 dark:text-blue-300'
+                      : ' text-neutral-500')
                   }
-                  style={{ minHeight: CELL_MIN_HEIGHT }}
+                  style={{ gridColumn: 1, gridRow }}
                 >
-                  {formatDayHeader(day, locale)}
+                  {isHourBoundary
+                    ? formatSlotLabel(slot.hour, slot.minute, locale)
+                    : null}
                 </div>
-                {hours.map((h, rowIndex) => {
+
+                {weekDays.map((day, dayIndex) => {
                   const isCurrentSlot =
                     current != null &&
                     sameLocalCalendarDate(day, current) &&
-                    currentHour != null &&
-                    h === currentHour
+                    currentSlotIndex === rowIndex
+
                   return (
                     <div
-                      key={h}
+                      key={day.toISOString()}
                       role="presentation"
-                      className={
-                        'shrink-0 border-b border-neutral-200 px-0.5 py-0.5 dark:border-neutral-800'
+                      className={`box-border border-b px-0.5 dark:border-neutral-800 ${borderClass}`}
+                      style={{ gridColumn: dayIndex + 2, gridRow }}
+                      onDragOver={(ev) =>
+                        handleDragOver(ev, dayIndex, rowIndex)
                       }
-                      style={{ minHeight: CELL_MIN_HEIGHT }}
-                      onDragOver={(ev) => handleDragOver(ev, dayIndex, rowIndex)}
                       onDrop={(ev) => handleDrop(ev, dayIndex, rowIndex)}
                     >
                       <div
                         className={
-                          'h-full min-h-[3.5rem] rounded-sm bg-neutral-50 dark:bg-neutral-900/40 ' +
+                          'box-border h-full rounded-sm bg-neutral-50 dark:bg-neutral-900/40 ' +
                           (isCurrentSlot
-                            ? 'border-2 border-blue-500 dark:border-blue-400'
+                            ? ' ring-2 ring-inset ring-blue-500 dark:ring-blue-400'
                             : '')
                         }
                       />
                     </div>
                   )
                 })}
-              </div>
-            ))}
-          </div>
+              </Fragment>
+            )
+          })}
+        </div>
 
+        <div
+          className="pointer-events-none absolute z-10"
+          style={{
+            left: TIME_GUTTER,
+            right: 0,
+            top: CELL_HEIGHT,
+            bottom: 0,
+          }}
+        >
           {dropPreview && (
             <div
               className="pointer-events-none absolute z-20 rounded-md border-2 border-dashed border-violet-500/90"
               style={{
                 left: `${(dropPreview.dayIndex / 7) * 100}%`,
                 width: `${(dropPreview.colSpan / 7) * 100}%`,
-                top: `calc(${CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM}rem * ${1 + dropPreview.rowIndex})`,
+                top: `calc(${CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM}rem * ${dropPreview.rowIndex})`,
                 height: `calc(${CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM}rem * ${dropPreview.rowSpan})`,
               }}
             />
           )}
 
           {blocks.length > 0 && (
-            <div className="pointer-events-none absolute inset-0 z-10">
-              <ScheduleBlocksOverlay
-                blocks={blocks}
-                locale={locale}
-                onDropOutsideSchedule={onDropOutsideSchedule}
-                onPlacedBlockDragPayloadChange={setPlacedDragPayload}
-              />
-            </div>
+            <ScheduleBlocksOverlay
+              blocks={blocks}
+              locale={locale}
+              onDropOutsideSchedule={onDropOutsideSchedule}
+              onPlacedBlockDragPayloadChange={setPlacedDragPayload}
+            />
           )}
         </div>
       </div>
