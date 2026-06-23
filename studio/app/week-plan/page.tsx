@@ -13,6 +13,7 @@ import {
 import { useScheduleStore } from './schedule-store'
 
 const DAY_COL_PX = curriculumScheduleDayColumnMinWidthPx()
+const PENDING_CARD_SCALE = 0.65
 const SCHEDULE_START_HOUR = 9
 const SCHEDULE_END_HOUR = 23
 
@@ -60,14 +61,14 @@ function PendingCourseCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={() => setDraggingPayload(null)}
-      className="flex max-w-full min-w-0 cursor-grab flex-col justify-start overflow-hidden rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm active:cursor-grabbing dark:border-neutral-800 dark:bg-neutral-950"
+      className="flex max-w-full min-w-0 shrink-0 cursor-grab flex-col justify-start overflow-hidden rounded border border-neutral-200 bg-white px-2 py-1 text-xs shadow-sm active:cursor-grabbing dark:border-neutral-800 dark:bg-neutral-950"
       style={{
-        width: `min(100%, ${hour * DAY_COL_PX}px)`,
-        minHeight: `${day * CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM}rem`,
+        width: `${hour * DAY_COL_PX * PENDING_CARD_SCALE}px`,
+        minHeight: `${day * CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM * PENDING_CARD_SCALE}rem`,
       }}
     >
-      <span className="block min-w-0 truncate font-medium leading-snug">{title}</span>
-      <span className="mt-0.5 text-xs tabular-nums text-neutral-500">
+      <span className="block min-w-0 truncate font-medium leading-tight">{title}</span>
+      <span className="mt-0.5 text-[10px] tabular-nums text-neutral-500">
         {day} 行 × {hour} 列
       </span>
     </div>
@@ -143,16 +144,16 @@ export default function WeekPlanPage() {
             onDropOutsideSchedule={handleDropOutsideSchedule}
           />
         </div>
-        <aside className="flex min-h-0 min-w-0 flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50/80 p-4 dark:border-neutral-800 dark:bg-neutral-900/40">
+        <aside className="flex min-h-0 min-w-0 flex-col gap-2 rounded-lg border border-neutral-200 bg-neutral-50/80 p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
           <div>
             <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
               待安排活动
             </h2>
-            <p className="mt-1 text-xs text-neutral-500">
+            <p className="mt-0.5 text-xs text-neutral-500">
               按住卡片拖到左侧周历；day = 纵向格数，hour = 横向格数。
             </p>
           </div>
-          <div className="scrollbar-hide flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+          <div className="scrollbar-hide flex min-h-0 flex-1 flex-wrap content-start items-start gap-1.5 overflow-y-auto">
             {pending.map((c) => (
               <PendingCourseCard key={c.id} {...c} />
             ))}
