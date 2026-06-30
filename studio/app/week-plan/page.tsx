@@ -1,65 +1,22 @@
 'use client'
 
 import Link from 'next/link'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { Check, Circle, GripVertical, Play, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM,
-  CurriculumSchedule,
-  type CourseDragPayload,
-  curriculumScheduleDayColumnMinWidthPx,
-  getSlotRange,
-  getSundayOfWeekContaining,
-  globalSlotIndexFromHour,
-  SCHEDULE_SLOT_MINUTES,
-  SCHEDULE_SLOTS_PER_HOUR,
-  type ScheduleBlock,
-} from '@/feature/curriculum-schedule'
 import { cn } from '@/lib/utils'
-import { useScheduleStore, type PlacedCourseBlock } from './schedule-store'
+import {
+  hasActivityDragPayload,
+  parseActivityDragPayload,
+  useTodoStore,
+  type ActivityDragPayload,
+  type TodoItem,
+} from './todo-store'
 
-const DAY_COL_PX = curriculumScheduleDayColumnMinWidthPx()
-const PENDING_CARD_SCALE = 0.65
-const SCHEDULE_START_HOUR = 8
-const SCHEDULE_END_HOUR = 22
-
-const SCHEDULE_PERIODS = [
-  { id: 'morning', label: '上午', startHour: 8, endHour: 12 },
-  { id: 'afternoon', label: '下午', startHour: 12, endHour: 18 },
-  { id: 'evening', label: '晚上', startHour: 18, endHour: 22 },
-] as const
-
-function getPeriodIndexForHour(hour: number): number {
-  if (hour >= 8 && hour < 12) return 0
-  if (hour >= 12 && hour < 18) return 1
-  if (hour >= 18 && hour < 22) return 2
-  return 0
-}
-
-function getPeriodStartRow(periodStartHour: number): number {
-  return globalSlotIndexFromHour(periodStartHour, SCHEDULE_START_HOUR, SCHEDULE_SLOT_MINUTES)
-}
-
-function toPeriodBlocks(
-  placed: PlacedCourseBlock[],
-  periodStartRow: number,
-  periodRowCount: number
-): ScheduleBlock[] {
-  const periodEnd = periodStartRow + periodRowCount
-  return placed.flatMap((b) => {
-    const blockEnd = b.rowStart + b.rowSpan
-    if (blockEnd <= periodStartRow || b.rowStart >= periodEnd) return []
-    const clipStart = Math.max(b.rowStart, periodStartRow)
-    const clipEnd = Math.min(blockEnd, periodEnd)
-    return [
-      {
-        ...b,
-        placementRowSpan: b.rowSpan,
-        rowStart: clipStart - periodStartRow,
-        rowSpan: clipEnd - clipStart,
-      },
-    ]
-  })
+function getSundayOfWeekContaining(date: Date): Date {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() - d.getDay())
+  return d
 }
 
 function getYearWeekLabel(date: Date): string {
@@ -73,7 +30,94 @@ function getYearWeekLabel(date: Date): string {
   return `${year}年 第${week}周`
 }
 
-function PendingCourseCard({
+const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
+
+type WeekDayTab = {
+  dayIndex: number
+  date: Date
+  label: string
+  isToday: boolean
+}
+
+function startOfLocalDay(d: Date): Date {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+function getVisibleWeekDayTabs(anchor: Date): WeekDayTab[] {
+  const sunday = getSundayOfWeekContaining(anchor)
+  const today = startOfLocalDay(new Date())
+  const tabs: WeekDayTab[] = []
+
+  for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+    const date = new Date(sunday)
+    date.setDate(sunday.getDate() + dayIndex)
+    const dayStart = startOfLocalDay(date)
+    if (dayStart > today) break
+
+    const isToday = dayStart.getTime() === today.getTime()
+    const md = `${date.getMonth() + 1}/${date.getDate()}`
+    tabs.push({
+      dayIndex,
+      date,
+      label: isToday ? `今天 ${md}` : `${WEEKDAY_LABELS[dayIndex]} ${md}`,
+      isToday,
+    })
+  }
+  return tabs
+}
+
+function DayTabBar({
+  tabs,
+  activeDayIndex,
+  onActiveDayChange,
+}: {
+  tabs: WeekDayTab[]
+  activeDayIndex: number
+  onActiveDayChange: (dayIndex: number) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="每日待办日期">
+      {tabs.map((tab) => {
+        const isActive = tab.dayIndex === activeDayIndex
+        return (
+          <button
+            key={tab.dayIndex}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            onClick={() => onActiveDayChange(tab.dayIndex)}
+            className={cn(
+              'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
+              isActive &&
+                tab.isToday &&
+                'border-emerald-300/80 bg-emerald-50/80 text-emerald-900 dark:border-emerald-700/60 dark:bg-emerald-950/30 dark:text-emerald-100',
+              isActive &&
+                !tab.isToday &&
+                'border-neutral-200 bg-white text-neutral-900 shadow-sm dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100',
+              !isActive &&
+                'border-transparent text-neutral-500 hover:border-neutral-200 hover:bg-white hover:text-neutral-900 dark:hover:border-neutral-800 dark:hover:bg-neutral-950 dark:hover:text-neutral-100'
+            )}
+          >
+            {tab.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function formatElapsed(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function PendingActivityCard({
   id,
   title,
   day,
@@ -84,16 +128,16 @@ function PendingCourseCard({
   day: number
   hour: number
 }) {
-  const setDraggingPayload = useScheduleStore((s) => s.setDraggingPayload)
+  const setDraggingPayload = useTodoStore((s) => s.setDraggingPayload)
   const onDragStart = (e: React.DragEvent) => {
     const payloadObj = {
-      kind: 'schedule-course',
+      kind: 'week-activity',
       source: 'pending',
       id,
       title,
-      rowSpan: day * SCHEDULE_SLOTS_PER_HOUR,
-      colSpan: hour,
-    } satisfies CourseDragPayload
+      day,
+      hour,
+    } satisfies ActivityDragPayload
     const payload = JSON.stringify(payloadObj)
     setDraggingPayload(payloadObj)
     e.dataTransfer.setData('application/json', payload)
@@ -106,195 +150,407 @@ function PendingCourseCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={() => setDraggingPayload(null)}
-      className="flex max-w-full min-w-0 shrink-0 cursor-grab flex-col justify-start overflow-hidden rounded border border-neutral-200 bg-white px-2 py-1 text-xs shadow-sm active:cursor-grabbing dark:border-neutral-800 dark:bg-neutral-950"
-      style={{
-        width: `${hour * DAY_COL_PX * PENDING_CARD_SCALE}px`,
-        minHeight: `${day * CURRICULUM_SCHEDULE_CELL_MIN_HEIGHT_REM * PENDING_CARD_SCALE}rem`,
-      }}
+      className="flex max-w-full min-w-0 shrink-0 cursor-grab flex-col justify-start overflow-hidden rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs shadow-sm active:cursor-grabbing dark:border-neutral-800 dark:bg-neutral-950"
+      style={{ width: `${Math.max(hour, 1) * 72}px` }}
     >
       <span className="block min-w-0 truncate font-medium leading-tight">{title}</span>
-      <span className="mt-0.5 text-[10px] tabular-nums text-neutral-500">
-        {day} 行 × {hour} 列
-      </span>
+      <span className="mt-1 text-[10px] text-neutral-500">预计 {day} 小时</span>
     </div>
   )
 }
 
-function SchedulePeriodSwitcher({
-  activeIndex,
-  onChange,
+function TodoRow({
+  item,
+  now,
+  onStart,
+  onComplete,
+  onRemove,
 }: {
-  activeIndex: number
-  onChange: (index: number) => void
+  item: TodoItem
+  now: number
+  onStart: () => void
+  onComplete: () => void
+  onRemove: () => void
 }) {
-  const goPrev = () => {
-    onChange((activeIndex - 1 + SCHEDULE_PERIODS.length) % SCHEDULE_PERIODS.length)
-  }
-  const goNext = () => {
-    onChange((activeIndex + 1) % SCHEDULE_PERIODS.length)
+  const setDraggingPayload = useTodoStore((s) => s.setDraggingPayload)
+  const isActive = item.status === 'active'
+  const isDone = item.status === 'done'
+  const elapsed =
+    isActive && item.startedAtMs != null ? formatElapsed(now - item.startedAtMs) : null
+
+  const onDragStart = (e: React.DragEvent) => {
+    const payloadObj = {
+      kind: 'week-activity',
+      source: 'todo',
+      id: item.id,
+      title: item.title,
+      day: item.estimatedHours,
+      hour: item.hour,
+    } satisfies ActivityDragPayload
+    const payload = JSON.stringify(payloadObj)
+    setDraggingPayload(payloadObj)
+    e.dataTransfer.setData('application/json', payload)
+    e.dataTransfer.setData('text/plain', payload)
+    e.dataTransfer.effectAllowed = 'move'
   }
 
   return (
-    <div className="flex shrink-0 flex-col items-center justify-center gap-2 py-2">
+    <li
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={() => setDraggingPayload(null)}
+      className={cn(
+        'group flex cursor-grab items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors active:cursor-grabbing',
+        isActive &&
+          'border-emerald-300/80 bg-emerald-50/80 dark:border-emerald-700/60 dark:bg-emerald-950/30',
+        !isActive &&
+          !isDone &&
+          'border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950',
+        isDone && 'border-neutral-100 bg-neutral-50/80 opacity-60 dark:border-neutral-800/60 dark:bg-neutral-900/40'
+      )}
+    >
       <button
         type="button"
-        onClick={goPrev}
-        aria-label="上一时段"
-        className="flex size-7 items-center justify-center rounded-full text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+        onClick={isDone ? undefined : onComplete}
+        disabled={isDone}
+        aria-label={isDone ? '已完成' : '标记完成'}
+        className={cn(
+          'flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors',
+          isDone
+            ? 'border-emerald-500 bg-emerald-500 text-white'
+            : 'border-neutral-300 text-neutral-400 hover:border-emerald-500 hover:text-emerald-600 dark:border-neutral-600 dark:hover:border-emerald-500'
+        )}
       >
-        <ChevronUp className="size-4" />
+        {isDone ? <Check className="size-3.5" /> : <Circle className="size-3.5" />}
       </button>
-      <div
-        className="flex flex-col items-center gap-2 py-1"
-        role="tablist"
-        aria-label="课程表时段"
-      >
-        {SCHEDULE_PERIODS.map((period, index) => (
-          <button
-            key={period.id}
-            type="button"
-            role="tab"
-            aria-selected={index === activeIndex}
-            aria-label={period.label}
-            onClick={() => onChange(index)}
+
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
             className={cn(
-              'rounded-full transition-all duration-200',
-              index === activeIndex
-                ? 'size-2 bg-neutral-900 dark:bg-neutral-100'
-                : 'size-1.5 bg-neutral-300 hover:bg-neutral-400 dark:bg-neutral-600 dark:hover:bg-neutral-500'
+              'truncate text-sm font-medium',
+              isDone && 'line-through text-neutral-500'
             )}
-          />
-        ))}
+          >
+            {item.title}
+          </span>
+          {isActive && (
+            <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+              进行中
+            </span>
+          )}
+        </div>
+        <p className="mt-0.5 text-xs text-neutral-500">
+          预计 {item.estimatedHours} 小时
+          {elapsed != null && (
+            <span className="ml-2 tabular-nums text-emerald-700 dark:text-emerald-400">
+              · {elapsed}
+            </span>
+          )}
+        </p>
       </div>
-      <button
-        type="button"
-        onClick={goNext}
-        aria-label="下一时段"
-        className="flex size-7 items-center justify-center rounded-full text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-      >
-        <ChevronDown className="size-4" />
-      </button>
+
+      <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        {!isDone && !isActive && (
+          <button
+            type="button"
+            onClick={onStart}
+            aria-label="开始"
+            className="flex size-7 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+          >
+            <Play className="size-3.5" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label="移除"
+          className="flex size-7 items-center justify-center rounded-md text-neutral-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
+    </li>
+  )
+}
+
+function TodoList({
+  todos,
+  now,
+  weekAnchor,
+  activeDayIndex,
+  onActiveDayChange,
+  isDragOver,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: {
+  todos: TodoItem[]
+  now: number
+  weekAnchor: Date
+  activeDayIndex: number
+  onActiveDayChange: (dayIndex: number) => void
+  isDragOver: boolean
+  onDragOver: (e: React.DragEvent) => void
+  onDragLeave: () => void
+  onDrop: (e: React.DragEvent) => void
+}) {
+  const startTodo = useTodoStore((s) => s.startTodo)
+  const completeTodo = useTodoStore((s) => s.completeTodo)
+  const removeTodo = useTodoStore((s) => s.removeTodo)
+
+  const dayTabs = useMemo(() => getVisibleWeekDayTabs(weekAnchor), [weekAnchor])
+
+  const dayTodos = useMemo(
+    () => todos.filter((t) => t.dayIndex === activeDayIndex),
+    [todos, activeDayIndex]
+  )
+
+  const sorted = useMemo(() => {
+    const order = { active: 0, pending: 1, done: 2 } as const
+    return [...dayTodos].sort((a, b) => order[a.status] - order[b.status])
+  }, [dayTodos])
+
+  const activeCount = dayTodos.filter((t) => t.status === 'active').length
+  const doneCount = dayTodos.filter((t) => t.status === 'done').length
+
+  return (
+    <div
+      className={cn(
+        'flex min-h-0 flex-1 flex-col rounded-lg border transition-colors',
+        isDragOver
+          ? 'border-dashed border-emerald-400 bg-emerald-50/50 dark:border-emerald-600 dark:bg-emerald-950/20'
+          : 'border-neutral-200 bg-neutral-50/50 dark:border-neutral-800 dark:bg-neutral-900/30'
+      )}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      <div className="flex shrink-0 flex-col gap-2 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+              每日待办
+            </h2>
+            <p className="mt-0.5 text-xs text-neutral-500">
+              {activeCount > 0
+                ? `${activeCount} 项进行中`
+                : '从右侧拖入活动卡片，自动开始'}
+              {doneCount > 0 && ` · 已完成 ${doneCount}`}
+            </p>
+          </div>
+          <GripVertical className="size-4 text-neutral-300 dark:text-neutral-600" />
+        </div>
+
+        <DayTabBar
+          tabs={dayTabs}
+          activeDayIndex={activeDayIndex}
+          onActiveDayChange={onActiveDayChange}
+        />
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {sorted.length === 0 ? (
+          <div
+            className={cn(
+              'flex h-full min-h-48 flex-col items-center justify-center rounded-md border border-dashed px-6 text-center',
+              isDragOver
+                ? 'border-emerald-400 text-emerald-700 dark:text-emerald-300'
+                : 'border-neutral-200 text-neutral-400 dark:border-neutral-700'
+            )}
+          >
+            <p className="text-sm font-medium">拖入活动开始当日计划</p>
+            <p className="mt-1 text-xs">松开鼠标后事项将自动开始计时</p>
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {sorted.map((item) => (
+              <TodoRow
+                key={item.id}
+                item={item}
+                now={now}
+                onStart={() => startTodo(item.id)}
+                onComplete={() => completeTodo(item.id)}
+                onRemove={() => removeTodo(item.id)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
+  )
+}
+
+function PendingPanel({
+  pending,
+  isDragOver,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: {
+  pending: { id: string; title: string; day: number; hour: number }[]
+  isDragOver: boolean
+  onDragOver: (e: React.DragEvent) => void
+  onDragLeave: () => void
+  onDrop: (e: React.DragEvent) => void
+}) {
+  return (
+    <aside
+      className={cn(
+        'flex min-h-0 min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors',
+        isDragOver
+          ? 'border-dashed border-amber-400 bg-amber-50/80 dark:border-amber-600 dark:bg-amber-950/20'
+          : 'border-neutral-200 bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-900/40'
+      )}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      <div>
+        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+          待安排活动
+        </h2>
+        <p className="mt-0.5 text-xs text-neutral-500">
+          拖到左侧自动开始；待办也可拖回此处重新安排。
+        </p>
+      </div>
+      <div className="scrollbar-hide flex min-h-0 flex-1 flex-wrap content-start items-start gap-2 overflow-y-auto">
+        {pending.map((c) => (
+          <PendingActivityCard key={c.id} {...c} />
+        ))}
+        {pending.length === 0 && (
+          <p
+            className={cn(
+              'w-full rounded-md border border-dashed px-3 py-6 text-center text-xs',
+              isDragOver
+                ? 'border-amber-400 text-amber-700 dark:text-amber-300'
+                : 'border-neutral-200 text-neutral-400 dark:border-neutral-700'
+            )}
+          >
+            {isDragOver ? '松开放回待安排' : '所有活动已加入待办'}
+          </p>
+        )}
+      </div>
+    </aside>
   )
 }
 
 export default function WeekPlanPage() {
   const currentDate = useMemo(() => new Date(), [])
-  const [now, setNow] = useState(() => new Date())
-  const [activePeriodIndex, setActivePeriodIndex] = useState(() =>
-    getPeriodIndexForHour(new Date().getHours())
-  )
+  const [now, setNow] = useState(() => Date.now())
+  const [activeDayIndex, setActiveDayIndex] = useState(() => new Date().getDay())
+  const [isTodoDragOver, setIsTodoDragOver] = useState(false)
+  const [isPendingDragOver, setIsPendingDragOver] = useState(false)
 
   useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 60_000)
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [])
 
-  const pending = useScheduleStore((s) => s.pending)
-  const placed = useScheduleStore((s) => s.placed)
-  const draggingPayload = useScheduleStore((s) => s.draggingPayload)
-  const setWeekAnchor = useScheduleStore((s) => s.setWeekAnchor)
-  const setScheduleHours = useScheduleStore((s) => s.setScheduleHours)
-  const setDraggingPayload = useScheduleStore((s) => s.setDraggingPayload)
-  const tryCommitDropToSchedule = useScheduleStore((s) => s.tryCommitDropToSchedule)
-  const movePlacedBackToPending = useScheduleStore((s) => s.movePlacedBackToPending)
-
-  const activePeriod = SCHEDULE_PERIODS[activePeriodIndex]
-  const periodStartRow = getPeriodStartRow(activePeriod.startHour)
-  const periodRowCount = getSlotRange(
-    activePeriod.startHour,
-    activePeriod.endHour,
-    SCHEDULE_SLOT_MINUTES
-  ).length
-
-  const periodBlocks = useMemo(
-    () => toPeriodBlocks(placed, periodStartRow, periodRowCount),
-    [placed, periodStartRow, periodRowCount]
-  )
-
   useEffect(() => {
-    setWeekAnchor(currentDate)
-  }, [currentDate, setWeekAnchor])
+    const visible = getVisibleWeekDayTabs(currentDate)
+    if (!visible.some((t) => t.dayIndex === activeDayIndex)) {
+      const fallback = visible[visible.length - 1]?.dayIndex ?? new Date().getDay()
+      setActiveDayIndex(fallback)
+    }
+  }, [currentDate, activeDayIndex])
 
-  useEffect(() => {
-    setScheduleHours(SCHEDULE_START_HOUR, SCHEDULE_END_HOUR)
-  }, [setScheduleHours])
-
-  const handleDropToSchedule = useCallback(
-    (block: ScheduleBlock) => {
-      tryCommitDropToSchedule(
-        { ...block, rowStart: block.rowStart + periodStartRow },
-        Date.now()
-      )
-      setDraggingPayload(null)
-    },
-    [periodStartRow, setDraggingPayload, tryCommitDropToSchedule]
-  )
-
-  const handleDropOutsideSchedule = useCallback(
-    (courseId: string) => {
-      movePlacedBackToPending(courseId)
-      setDraggingPayload(null)
-    },
-    [movePlacedBackToPending, setDraggingPayload]
-  )
+  const pending = useTodoStore((s) => s.pending)
+  const todos = useTodoStore((s) => s.todos)
+  const draggingPayload = useTodoStore((s) => s.draggingPayload)
+  const setDraggingPayload = useTodoStore((s) => s.setDraggingPayload)
+  const addTodoFromDrop = useTodoStore((s) => s.addTodoFromDrop)
+  const moveTodoBackToPending = useTodoStore((s) => s.moveTodoBackToPending)
 
   const yearWeekLabel = useMemo(() => getYearWeekLabel(currentDate), [currentDate])
+
+  const handleTodoDragOver = useCallback(
+    (e: React.DragEvent) => {
+      const payload = draggingPayload
+      if (!hasActivityDragPayload(e.dataTransfer) && !payload) return
+      if (payload?.source === 'todo') return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      setIsTodoDragOver(true)
+    },
+    [draggingPayload]
+  )
+
+  const handleTodoDragLeave = useCallback(() => {
+    setIsTodoDragOver(false)
+  }, [])
+
+  const handleTodoDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setIsTodoDragOver(false)
+      const payload = parseActivityDragPayload(e.dataTransfer) ?? draggingPayload
+      if (!payload || payload.source !== 'pending') return
+      addTodoFromDrop(payload, activeDayIndex)
+      setDraggingPayload(null)
+    },
+    [activeDayIndex, addTodoFromDrop, draggingPayload, setDraggingPayload]
+  )
+
+  const handlePendingDragOver = useCallback(
+    (e: React.DragEvent) => {
+      const payload = draggingPayload
+      if (!hasActivityDragPayload(e.dataTransfer) && !payload) return
+      if (payload?.source === 'pending') return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      setIsPendingDragOver(true)
+    },
+    [draggingPayload]
+  )
+
+  const handlePendingDragLeave = useCallback(() => {
+    setIsPendingDragOver(false)
+  }, [])
+
+  const handlePendingDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setIsPendingDragOver(false)
+      const payload = parseActivityDragPayload(e.dataTransfer) ?? draggingPayload
+      if (!payload || payload.source !== 'todo') return
+      moveTodoBackToPending(payload.id)
+      setDraggingPayload(null)
+    },
+    [draggingPayload, moveTodoBackToPending, setDraggingPayload]
+  )
 
   return (
     <div className="mx-auto h-[calc(100vh-6rem)] max-w-7xl p-6">
       <div className="grid h-full gap-6 md:grid-cols-[2fr_1fr]">
         <div className="flex min-h-0 min-w-0 flex-col">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h1 className="text-lg font-semibold">{yearWeekLabel}</h1>
-              <p className="text-sm text-neutral-500">
-                {activePeriod.label}{' '}
-                <span className="tabular-nums">
-                  {activePeriod.startHour}:00–{activePeriod.endHour}:00
-                </span>
-              </p>
-            </div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h1 className="text-lg font-semibold">{yearWeekLabel}</h1>
             <div className="flex items-center gap-2 text-sm">
               <Link href="/box-editor" className="text-primary underline-offset-4 hover:underline">
                 空间编辑器
               </Link>
             </div>
           </div>
-          <div className="flex min-h-0 min-w-0 flex-1 gap-1">
-            <SchedulePeriodSwitcher
-              activeIndex={activePeriodIndex}
-              onChange={setActivePeriodIndex}
-            />
-            <CurriculumSchedule
-              className="min-h-0 min-w-0 flex-1"
-              currentDate={currentDate}
-              current={now}
-              startHour={activePeriod.startHour}
-              endHour={activePeriod.endHour}
-              locale="zh-CN"
-              blocks={periodBlocks}
-              activeDragPayload={draggingPayload}
-              onDropToSchedule={handleDropToSchedule}
-              onDropOutsideSchedule={handleDropOutsideSchedule}
-            />
-          </div>
+          <TodoList
+            todos={todos}
+            now={now}
+            weekAnchor={currentDate}
+            activeDayIndex={activeDayIndex}
+            onActiveDayChange={setActiveDayIndex}
+            isDragOver={isTodoDragOver}
+            onDragOver={handleTodoDragOver}
+            onDragLeave={handleTodoDragLeave}
+            onDrop={handleTodoDrop}
+          />
         </div>
-        <aside className="flex min-h-0 min-w-0 flex-col gap-2 rounded-lg border border-neutral-200 bg-neutral-50/80 p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
-          <div>
-            <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              待安排活动
-            </h2>
-            <p className="mt-0.5 text-xs text-neutral-500">
-              按住卡片拖到左侧周历；day = 纵向格数，hour = 横向格数。
-            </p>
-          </div>
-          <div className="scrollbar-hide flex min-h-0 flex-1 flex-wrap content-start items-start gap-1.5 overflow-y-auto">
-            {pending.map((c) => (
-              <PendingCourseCard key={c.id} {...c} />
-            ))}
-          </div>
-        </aside>
+        <PendingPanel
+          pending={pending}
+          isDragOver={isPendingDragOver}
+          onDragOver={handlePendingDragOver}
+          onDragLeave={handlePendingDragLeave}
+          onDrop={handlePendingDrop}
+        />
       </div>
     </div>
   )
