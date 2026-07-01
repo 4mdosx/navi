@@ -1,4 +1,17 @@
 import { create } from 'zustand'
+import type { WeekPlanPendingActivity, WeekPlanTodo } from '@/types/week-plan'
+import {
+  apiAddTodoFromPending,
+  apiCompleteTodo,
+  apiCreatePending,
+  apiCreateTodo,
+  apiDeletePending,
+  apiDeleteTodo,
+  apiMoveTodoToPending,
+  apiStartTodo,
+  apiUpdatePending,
+  fetchWeekPlan,
+} from './week-plan-api'
 
 export type PendingActivity = {
   id: string
@@ -32,118 +45,213 @@ export type TodoItem = {
   completedAtMs?: number
 }
 
-const INITIAL_PENDING: PendingActivity[] = [
-  { id: '1', title: '高等数学（习题）', day: 3, hour: 1 },
-  { id: '2', title: '实验课', day: 1, hour: 2 },
-  { id: '3', title: '小组项目', day: 2, hour: 3 },
-  { id: '4', title: '讲座', day: 1, hour: 1 },
-]
+function mapTodo(t: WeekPlanTodo): TodoItem {
+  return {
+    id: t.id,
+    title: t.title,
+    status: t.status,
+    estimatedHours: t.estimatedHours,
+    hour: t.hour,
+    dayIndex: t.dayIndex,
+    startedAtMs: t.startedAtMs,
+    completedAtMs: t.completedAtMs,
+  }
+}
+
+function mapPending(p: WeekPlanPendingActivity): PendingActivity {
+  return {
+    id: p.id,
+    title: p.title,
+    day: p.day,
+    hour: p.hour,
+  }
+}
 
 type TodoStore = {
+  weekStart: string | null
+  isLoading: boolean
+  error: string | null
   draggingPayload: ActivityDragPayload | null
   pending: PendingActivity[]
   todos: TodoItem[]
   setDraggingPayload: (payload: ActivityDragPayload | null) => void
+  loadWeek: (weekStart: string) => Promise<void>
   addTodoFromDrop: (
     activity: Omit<ActivityDragPayload, 'kind' | 'source'>,
     dayIndex: number
-  ) => void
-  moveTodoBackToPending: (id: string) => void
-  startTodo: (id: string) => void
-  completeTodo: (id: string) => void
-  removeTodo: (id: string) => void
-  resetDemo: () => void
-}
-
-function demoteActive(todos: TodoItem[]): TodoItem[] {
-  return todos.map((t) =>
-    t.status === 'active' ? { ...t, status: 'pending' as const, startedAtMs: undefined } : t
-  )
+  ) => Promise<void>
+  addTodo: (input: {
+    title: string
+    dayIndex: number
+    estimatedHours?: number
+  }) => Promise<void>
+  addPending: (input: {
+    title: string
+    estimatedHours?: number
+    hour?: number
+  }) => Promise<void>
+  updatePending: (
+    id: string,
+    input: { title?: string; estimatedHours?: number; hour?: number }
+  ) => Promise<void>
+  removePending: (id: string) => Promise<void>
+  moveTodoBackToPending: (id: string) => Promise<void>
+  startTodo: (id: string) => Promise<void>
+  completeTodo: (id: string) => Promise<void>
+  removeTodo: (id: string) => Promise<void>
 }
 
 export const useTodoStore = create<TodoStore>((set, get) => ({
+  weekStart: null,
+  isLoading: false,
+  error: null,
   draggingPayload: null,
-  pending: INITIAL_PENDING,
+  pending: [],
   todos: [],
   setDraggingPayload: (payload) => set({ draggingPayload: payload }),
-  moveTodoBackToPending: (id) => {
-    const { pending, todos } = get()
-    const target = todos.find((t) => t.id === id)
-    if (!target) return
-    const existsInPending = pending.some((p) => p.id === id)
-    set({
-      todos: todos.filter((t) => t.id !== id),
-      pending: existsInPending
-        ? pending
-        : [
-            {
-              id: target.id,
-              title: target.title,
-              day: target.estimatedHours,
-              hour: target.hour,
-            },
-            ...pending,
-          ],
-      draggingPayload: null,
-    })
+  loadWeek: async (weekStart) => {
+    set({ isLoading: true, error: null, weekStart })
+    try {
+      const data = await fetchWeekPlan(weekStart)
+      set({
+        pending: data.pending.map(mapPending),
+        todos: data.todos.map(mapTodo),
+        weekStart: data.weekStart,
+        isLoading: false,
+        error: null,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '加载失败'
+      console.error('Failed to load week plan:', error)
+      set({ isLoading: false, error: message })
+    }
   },
-  addTodoFromDrop: ({ id, title, day, hour }, dayIndex) => {
-    const { pending, todos } = get()
-    const now = Date.now()
-    const existing = todos.find((t) => t.id === id)
-    const nextTodos = demoteActive(todos.filter((t) => t.id !== id))
-    const item: TodoItem = existing
-      ? {
-          ...existing,
-          status: 'active',
-          dayIndex,
-          startedAtMs: now,
-          completedAtMs: undefined,
-        }
-      : {
-          id,
-          title,
-          status: 'active',
-          estimatedHours: day,
-          hour,
-          dayIndex,
-          startedAtMs: now,
-        }
-    set({
-      todos: [item, ...nextTodos],
-      pending: pending.filter((p) => p.id !== id),
-      draggingPayload: null,
-    })
+  moveTodoBackToPending: async (id) => {
+    const { weekStart } = get()
+    try {
+      const result = await apiMoveTodoToPending(id)
+      set({
+        pending: result.pending.map(mapPending),
+        todos: weekStart
+          ? result.todos.filter((t) => t.weekStart === weekStart).map(mapTodo)
+          : result.todos.map(mapTodo),
+        draggingPayload: null,
+      })
+    } catch (error) {
+      console.error('Failed to move todo to pending:', error)
+    }
   },
-  startTodo: (id) => {
-    const { todos } = get()
-    const now = Date.now()
-    set({
-      todos: demoteActive(todos).map((t) =>
-        t.id === id
-          ? { ...t, status: 'active' as const, startedAtMs: now, completedAtMs: undefined }
-          : t
-      ),
-    })
+  addTodoFromDrop: async ({ id, title, day, hour }, dayIndex) => {
+    const { weekStart } = get()
+    if (!weekStart) return
+    try {
+      const result = await apiAddTodoFromPending({
+        id,
+        title,
+        day,
+        hour,
+        dayIndex,
+        weekStart,
+      })
+      set({
+        todos: [
+          mapTodo(result.todo),
+          ...get()
+            .todos.filter((t) => t.id !== id)
+            .map((t) =>
+              t.status === 'active'
+                ? { ...t, status: 'pending' as const, startedAtMs: undefined }
+                : t
+            ),
+        ],
+        pending: result.pending.map(mapPending),
+        draggingPayload: null,
+      })
+    } catch (error) {
+      console.error('Failed to add todo from drop:', error)
+    }
   },
-  completeTodo: (id) => {
-    const { todos } = get()
-    const now = Date.now()
-    set({
-      todos: todos.map((t) =>
-        t.id === id ? { ...t, status: 'done' as const, completedAtMs: now } : t
-      ),
-    })
+  addTodo: async ({ title, dayIndex, estimatedHours = 1 }) => {
+    const { weekStart } = get()
+    if (!weekStart) return
+    const trimmed = title.trim()
+    if (!trimmed) return
+    try {
+      const todo = await apiCreateTodo({
+        title: trimmed,
+        dayIndex,
+        weekStart,
+        estimatedHours,
+      })
+      set({ todos: [mapTodo(todo), ...get().todos] })
+    } catch (error) {
+      console.error('Failed to add todo:', error)
+    }
   },
-  removeTodo: (id) => {
-    set({ todos: get().todos.filter((t) => t.id !== id) })
+  startTodo: async (id) => {
+    const { weekStart, todos } = get()
+    if (!weekStart) return
+    try {
+      const todo = await apiStartTodo(id, weekStart)
+      set({
+        todos: todos.map((t) => {
+          if (t.id === id) return mapTodo(todo)
+          if (t.status === 'active') {
+            return { ...t, status: 'pending' as const, startedAtMs: undefined }
+          }
+          return t
+        }),
+      })
+    } catch (error) {
+      console.error('Failed to start todo:', error)
+    }
   },
-  resetDemo: () =>
-    set({
-      pending: INITIAL_PENDING,
-      todos: [],
-      draggingPayload: null,
-    }),
+  completeTodo: async (id) => {
+    try {
+      const todo = await apiCompleteTodo(id)
+      set({
+        todos: get().todos.map((t) => (t.id === id ? mapTodo(todo) : t)),
+      })
+    } catch (error) {
+      console.error('Failed to complete todo:', error)
+    }
+  },
+  removeTodo: async (id) => {
+    try {
+      await apiDeleteTodo(id)
+      set({ todos: get().todos.filter((t) => t.id !== id) })
+    } catch (error) {
+      console.error('Failed to remove todo:', error)
+    }
+  },
+  addPending: async ({ title, estimatedHours = 1, hour = 1 }) => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    try {
+      const pending = await apiCreatePending({ title: trimmed, estimatedHours, hour })
+      set({ pending: [...get().pending, mapPending(pending)] })
+    } catch (error) {
+      console.error('Failed to add pending:', error)
+    }
+  },
+  updatePending: async (id, input) => {
+    try {
+      const pending = await apiUpdatePending(id, input)
+      set({
+        pending: get().pending.map((p) => (p.id === id ? mapPending(pending) : p)),
+      })
+    } catch (error) {
+      console.error('Failed to update pending:', error)
+    }
+  },
+  removePending: async (id) => {
+    try {
+      await apiDeletePending(id)
+      set({ pending: get().pending.filter((p) => p.id !== id) })
+    } catch (error) {
+      console.error('Failed to remove pending:', error)
+    }
+  },
 }))
 
 export function parseActivityDragPayload(

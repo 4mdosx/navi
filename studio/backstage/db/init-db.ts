@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 数据库初始化脚本：创建 settings / projects / project_todos / agent_sessions / agent_presets。
+ * 数据库初始化脚本：创建 settings / projects / project_todos / week_plan_* / agent_sessions / agent_presets。
  * `agent_sessions` 每次 init 会先 **DROP** 再建表（仅清空 Agent 会话；projects 等不受影响）。
  *
  * 用法:
@@ -98,6 +98,98 @@ function initializeDatabase(): void {
         updatedAt TEXT NOT NULL
       )
     `)
+
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS week_plan_pending (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        estimatedHours INTEGER NOT NULL DEFAULT 1,
+        hour INTEGER NOT NULL DEFAULT 1,
+        sortOrder INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `)
+
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS week_plan_todos (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        estimatedHours INTEGER NOT NULL DEFAULT 1,
+        hour INTEGER NOT NULL DEFAULT 1,
+        dayIndex INTEGER NOT NULL,
+        weekStart TEXT NOT NULL,
+        startedAt TEXT,
+        completedAt TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `)
+
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_week_plan_todos_weekStart
+      ON week_plan_todos(weekStart)
+    `)
+
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS tracker_items (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'long_task',
+        status TEXT NOT NULL DEFAULT 'active',
+        cadence TEXT,
+        lastTouchedAt TEXT,
+        notes TEXT NOT NULL DEFAULT '',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `)
+
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_tracker_items_status
+      ON tracker_items(status)
+    `)
+
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS inbox_items (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        url TEXT,
+        source TEXT NOT NULL DEFAULT 'manual',
+        status TEXT NOT NULL DEFAULT 'inbox',
+        tags TEXT NOT NULL DEFAULT '[]',
+        notes TEXT NOT NULL DEFAULT '',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `)
+
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_inbox_items_status
+      ON inbox_items(status)
+    `)
+
+    const pendingCount = sqlite
+      .prepare('SELECT COUNT(*) AS count FROM week_plan_pending')
+      .get() as { count: number }
+    if (pendingCount.count === 0) {
+      const seedNow = new Date().toISOString()
+      const seedPending = [
+        { id: '1', title: '高等数学（习题）', estimatedHours: 3, hour: 1, sortOrder: 0 },
+        { id: '2', title: '实验课', estimatedHours: 1, hour: 2, sortOrder: 1 },
+        { id: '3', title: '小组项目', estimatedHours: 2, hour: 3, sortOrder: 2 },
+        { id: '4', title: '讲座', estimatedHours: 1, hour: 1, sortOrder: 3 },
+      ]
+      const insertPending = sqlite.prepare(`
+        INSERT INTO week_plan_pending (id, title, estimatedHours, hour, sortOrder, createdAt, updatedAt)
+        VALUES (@id, @title, @estimatedHours, @hour, @sortOrder, @createdAt, @updatedAt)
+      `)
+      for (const row of seedPending) {
+        insertPending.run({ ...row, createdAt: seedNow, updatedAt: seedNow })
+      }
+    }
 
     const now = new Date().toISOString()
     const defaultPromptPrefix =

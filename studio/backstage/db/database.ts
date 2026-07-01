@@ -12,6 +12,47 @@ const dbPath = process.env.DB_FILE_NAME
 // 创建 SQLite 数据库连接
 const sqlite = new Database(dbPath)
 
+let schemaEnsured = false
+
+function ensureSchema(): void {
+  if (schemaEnsured) return
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS tracker_items (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'long_task',
+      status TEXT NOT NULL DEFAULT 'active',
+      cadence TEXT,
+      lastTouchedAt TEXT,
+      notes TEXT NOT NULL DEFAULT '',
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `)
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS idx_tracker_items_status
+    ON tracker_items(status)
+  `)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS inbox_items (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      url TEXT,
+      source TEXT NOT NULL DEFAULT 'manual',
+      status TEXT NOT NULL DEFAULT 'inbox',
+      tags TEXT NOT NULL DEFAULT '[]',
+      notes TEXT NOT NULL DEFAULT '',
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `)
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS idx_inbox_items_status
+    ON inbox_items(status)
+  `)
+  schemaEnsured = true
+}
+
 // 创建数据库客户端单例
 const globalForDb = globalThis as unknown as {
   db: Kysely<DatabaseType> | undefined
@@ -22,6 +63,7 @@ const globalForDb = globalThis as unknown as {
  * 使用单例模式确保整个应用只有一个数据库连接
  */
 export async function getDatabase(): Promise<Kysely<DatabaseType>> {
+  ensureSchema()
   if (!globalForDb.db) {
     globalForDb.db = new Kysely<DatabaseType>({
       dialect: new SqliteDialect({

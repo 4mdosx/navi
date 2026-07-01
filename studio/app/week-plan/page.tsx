@@ -1,8 +1,19 @@
 'use client'
 
 import Link from 'next/link'
-import { Check, Circle, GripVertical, Play, Trash2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Circle, Play, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import {
   hasActivityDragPayload,
@@ -11,6 +22,8 @@ import {
   type ActivityDragPayload,
   type TodoItem,
 } from './todo-store'
+import { formatWeekStartClient } from './week-plan-api'
+import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
 
 function getSundayOfWeekContaining(date: Date): Date {
   const d = new Date(date)
@@ -48,13 +61,19 @@ function startOfLocalDay(d: Date): Date {
 function getVisibleWeekDayTabs(anchor: Date): WeekDayTab[] {
   const sunday = getSundayOfWeekContaining(anchor)
   const today = startOfLocalDay(new Date())
+  const weekSunday = startOfLocalDay(sunday)
+  const weekSaturday = new Date(weekSunday)
+  weekSaturday.setDate(weekSunday.getDate() + 6)
+
+  const isPastWeek = weekSaturday < today
+  const isFutureWeek = weekSunday > today
   const tabs: WeekDayTab[] = []
 
   for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
     const date = new Date(sunday)
     date.setDate(sunday.getDate() + dayIndex)
     const dayStart = startOfLocalDay(date)
-    if (dayStart > today) break
+    if (!isPastWeek && !isFutureWeek && dayStart > today) break
 
     const isToday = dayStart.getTime() === today.getTime()
     const md = `${date.getMonth() + 1}/${date.getDate()}`
@@ -274,6 +293,100 @@ function TodoRow({
   )
 }
 
+function AddTodoDialog({
+  open,
+  onOpenChange,
+  dayLabel,
+  onSubmit,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  dayLabel: string
+  onSubmit: (values: { title: string; estimatedHours: number }) => void
+}) {
+  const [title, setTitle] = useState('')
+  const [estimatedHours, setEstimatedHours] = useState('1')
+
+  const reset = useCallback(() => {
+    setTitle('')
+    setEstimatedHours('1')
+  }, [])
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (!next) reset()
+      onOpenChange(next)
+    },
+    [onOpenChange, reset]
+  )
+
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault()
+      const trimmed = title.trim()
+      if (!trimmed) return
+      const hours = Math.max(1, Math.round(Number(estimatedHours) || 1))
+      onSubmit({ title: trimmed, estimatedHours: hours })
+      handleOpenChange(false)
+    },
+    [title, estimatedHours, onSubmit, handleOpenChange]
+  )
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        overlayClassName="bg-neutral-950/30 backdrop-blur-[3px] duration-300 ease-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+        className={cn(
+          'sm:max-w-[400px] duration-300 ease-out',
+          'data-[state=open]:animate-in data-[state=closed]:animate-out',
+          'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+          'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+          'data-[state=open]:slide-in-from-left-1/2 data-[state=closed]:slide-out-to-left-1/2',
+          'data-[state=open]:slide-in-from-top-[48%] data-[state=closed]:slide-out-to-top-[48%]'
+        )}
+      >
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>新增任务</DialogTitle>
+            <DialogDescription>添加到 {dayLabel} 的待办列表</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="todo-title">标题</Label>
+              <Input
+                id="todo-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="输入任务名称"
+                autoFocus
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="todo-hours">预计时长（小时）</Label>
+              <Input
+                id="todo-hours"
+                type="number"
+                min={1}
+                step={1}
+                value={estimatedHours}
+                onChange={(e) => setEstimatedHours(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+              取消
+            </Button>
+            <Button type="submit" disabled={!title.trim()}>
+              添加
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function TodoList({
   todos,
   now,
@@ -298,8 +411,19 @@ function TodoList({
   const startTodo = useTodoStore((s) => s.startTodo)
   const completeTodo = useTodoStore((s) => s.completeTodo)
   const removeTodo = useTodoStore((s) => s.removeTodo)
+  const addTodo = useTodoStore((s) => s.addTodo)
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
 
   const dayTabs = useMemo(() => getVisibleWeekDayTabs(weekAnchor), [weekAnchor])
+  const activeDayLabel =
+    dayTabs.find((t) => t.dayIndex === activeDayIndex)?.label ?? '当日'
+
+  const handleAddTodo = useCallback(
+    (values: { title: string; estimatedHours: number }) => {
+      addTodo({ ...values, dayIndex: activeDayIndex })
+    },
+    [activeDayIndex, addTodo]
+  )
 
   const dayTodos = useMemo(
     () => todos.filter((t) => t.dayIndex === activeDayIndex),
@@ -315,17 +439,24 @@ function TodoList({
   const doneCount = dayTodos.filter((t) => t.status === 'done').length
 
   return (
-    <div
-      className={cn(
-        'flex min-h-0 flex-1 flex-col rounded-lg border transition-colors',
-        isDragOver
-          ? 'border-dashed border-emerald-400 bg-emerald-50/50 dark:border-emerald-600 dark:bg-emerald-950/20'
-          : 'border-neutral-200 bg-neutral-50/50 dark:border-neutral-800 dark:bg-neutral-900/30'
-      )}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
+    <>
+      <AddTodoDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        dayLabel={activeDayLabel}
+        onSubmit={handleAddTodo}
+      />
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col rounded-lg border transition-colors',
+          isDragOver
+            ? 'border-dashed border-emerald-400 bg-emerald-50/50 dark:border-emerald-600 dark:bg-emerald-950/20'
+            : 'border-neutral-200 bg-neutral-50/50 dark:border-neutral-800 dark:bg-neutral-900/30'
+        )}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
       <div className="flex shrink-0 flex-col gap-2 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
         <div className="flex items-center justify-between">
           <div>
@@ -335,11 +466,18 @@ function TodoList({
             <p className="mt-0.5 text-xs text-neutral-500">
               {activeCount > 0
                 ? `${activeCount} 项进行中`
-                : '从右侧拖入活动卡片，自动开始'}
+                : '拖入活动自动开始，或点击添加新建'}
               {doneCount > 0 && ` · 已完成 ${doneCount}`}
             </p>
           </div>
-          <GripVertical className="size-4 text-neutral-300 dark:text-neutral-600" />
+          <button
+            type="button"
+            onClick={() => setAddDialogOpen(true)}
+            className="flex shrink-0 items-center gap-1 rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-xs font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-900"
+          >
+            <Plus className="size-3.5" />
+            添加
+          </button>
         </div>
 
         <DayTabBar
@@ -359,8 +497,8 @@ function TodoList({
                 : 'border-neutral-200 text-neutral-400 dark:border-neutral-700'
             )}
           >
-            <p className="text-sm font-medium">拖入活动开始当日计划</p>
-            <p className="mt-1 text-xs">松开鼠标后事项将自动开始计时</p>
+            <p className="text-sm font-medium">拖入活动或点击添加</p>
+            <p className="mt-1 text-xs">拖入后自动开始计时；手动添加需点击开始</p>
           </div>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -377,7 +515,8 @@ function TodoList({
           </ul>
         )}
       </div>
-    </div>
+      </div>
+    </>
   )
 }
 
@@ -394,6 +533,26 @@ function PendingPanel({
   onDragLeave: () => void
   onDrop: (e: React.DragEvent) => void
 }) {
+  const addPending = useTodoStore((s) => s.addPending)
+  const removePending = useTodoStore((s) => s.removePending)
+  const [addOpen, setAddOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [hours, setHours] = useState('1')
+
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = title.trim()
+    if (!trimmed) return
+    void addPending({
+      title: trimmed,
+      estimatedHours: Math.max(1, Math.round(Number(hours) || 1)),
+    }).then(() => {
+      setTitle('')
+      setHours('1')
+      setAddOpen(false)
+    })
+  }
+
   return (
     <aside
       className={cn(
@@ -406,17 +565,62 @@ function PendingPanel({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <div>
-        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-          待安排活动
-        </h2>
-        <p className="mt-0.5 text-xs text-neutral-500">
-          拖到左侧自动开始；待办也可拖回此处重新安排。
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            待安排活动
+          </h2>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            拖到左侧自动开始；待办也可拖回此处重新安排。
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setAddOpen((v) => !v)}
+          className="flex shrink-0 items-center gap-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs font-medium text-neutral-700 shadow-sm hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-200"
+        >
+          <Plus className="size-3.5" />
+          添加
+        </button>
       </div>
+
+      {addOpen && (
+        <form onSubmit={handleAdd} className="flex flex-col gap-2 rounded-md border border-dashed p-2">
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="活动名称"
+            className="h-8 text-xs"
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              min={1}
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+              className="h-8 w-20 text-xs"
+            />
+            <Button type="submit" size="sm" className="h-8 text-xs" disabled={!title.trim()}>
+              保存
+            </Button>
+          </div>
+        </form>
+      )}
+
       <div className="scrollbar-hide flex min-h-0 flex-1 flex-wrap content-start items-start gap-2 overflow-y-auto">
         {pending.map((c) => (
-          <PendingActivityCard key={c.id} {...c} />
+          <div key={c.id} className="group relative">
+            <PendingActivityCard {...c} />
+            <button
+              type="button"
+              onClick={() => void removePending(c.id)}
+              aria-label="删除"
+              className="absolute -right-1 -top-1 hidden size-5 items-center justify-center rounded-full border bg-white text-neutral-500 shadow group-hover:flex hover:text-red-600 dark:bg-neutral-900"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          </div>
         ))}
         {pending.length === 0 && (
           <p
@@ -436,11 +640,16 @@ function PendingPanel({
 }
 
 export default function WeekPlanPage() {
-  const currentDate = useMemo(() => new Date(), [])
+  const [weekAnchor, setWeekAnchor] = useState(() => new Date())
   const [now, setNow] = useState(() => Date.now())
   const [activeDayIndex, setActiveDayIndex] = useState(() => new Date().getDay())
   const [isTodoDragOver, setIsTodoDragOver] = useState(false)
   const [isPendingDragOver, setIsPendingDragOver] = useState(false)
+
+  const weekStart = formatWeekStartClient(weekAnchor)
+  const isLoading = useTodoStore((s) => s.isLoading)
+  const loadError = useTodoStore((s) => s.error)
+  const loadWeek = useTodoStore((s) => s.loadWeek)
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000)
@@ -448,12 +657,16 @@ export default function WeekPlanPage() {
   }, [])
 
   useEffect(() => {
-    const visible = getVisibleWeekDayTabs(currentDate)
+    const visible = getVisibleWeekDayTabs(weekAnchor)
     if (!visible.some((t) => t.dayIndex === activeDayIndex)) {
-      const fallback = visible[visible.length - 1]?.dayIndex ?? new Date().getDay()
+      const fallback = visible[visible.length - 1]?.dayIndex ?? weekAnchor.getDay()
       setActiveDayIndex(fallback)
     }
-  }, [currentDate, activeDayIndex])
+  }, [weekAnchor, activeDayIndex])
+
+  useEffect(() => {
+    void loadWeek(weekStart)
+  }, [weekStart, loadWeek])
 
   const pending = useTodoStore((s) => s.pending)
   const todos = useTodoStore((s) => s.todos)
@@ -462,7 +675,27 @@ export default function WeekPlanPage() {
   const addTodoFromDrop = useTodoStore((s) => s.addTodoFromDrop)
   const moveTodoBackToPending = useTodoStore((s) => s.moveTodoBackToPending)
 
-  const yearWeekLabel = useMemo(() => getYearWeekLabel(currentDate), [currentDate])
+  const yearWeekLabel = useMemo(() => getYearWeekLabel(weekAnchor), [weekAnchor])
+
+  const goPrevWeek = () => {
+    const nextStart = shiftWeekStart(weekStart, -1)
+    const [y, m, d] = nextStart.split('-').map(Number)
+    setWeekAnchor(new Date(y, m - 1, d))
+  }
+
+  const goNextWeek = () => {
+    const nextStart = shiftWeekStart(weekStart, 1)
+    const [y, m, d] = nextStart.split('-').map(Number)
+    setWeekAnchor(new Date(y, m - 1, d))
+  }
+
+  const goCurrentWeek = () => {
+    setWeekAnchor(new Date())
+    setActiveDayIndex(new Date().getDay())
+  }
+
+  const isCurrentWeek =
+    formatWeekStartClient(new Date()) === weekStart
 
   const handleTodoDragOver = useCallback(
     (e: React.DragEvent) => {
@@ -522,20 +755,67 @@ export default function WeekPlanPage() {
 
   return (
     <div className="mx-auto h-[calc(100vh-6rem)] max-w-7xl p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <Link
+          href="/dashboard"
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          ← 返回 Navi
+        </Link>
+      </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {loadError}
+          <button
+            type="button"
+            className="ml-3 underline"
+            onClick={() => void loadWeek(weekStart)}
+          >
+            重试
+          </button>
+        </div>
+      )}
+
       <div className="grid h-full gap-6 md:grid-cols-[2fr_1fr]">
         <div className="flex min-h-0 min-w-0 flex-col">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h1 className="text-lg font-semibold">{yearWeekLabel}</h1>
-            <div className="flex items-center gap-2 text-sm">
-              <Link href="/box-editor" className="text-primary underline-offset-4 hover:underline">
-                空间编辑器
-              </Link>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={goPrevWeek}
+                aria-label="上一周"
+                className="flex size-8 items-center justify-center rounded-md border border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <h1 className="text-lg font-semibold">{yearWeekLabel}</h1>
+              <button
+                type="button"
+                onClick={goNextWeek}
+                aria-label="下一周"
+                className="flex size-8 items-center justify-center rounded-md border border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+              >
+                <ChevronRight className="size-4" />
+              </button>
+              {!isCurrentWeek && (
+                <button
+                  type="button"
+                  onClick={goCurrentWeek}
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                >
+                  回到本周
+                </button>
+              )}
             </div>
+            {isLoading && (
+              <span className="text-xs text-muted-foreground">加载中…</span>
+            )}
           </div>
           <TodoList
             todos={todos}
             now={now}
-            weekAnchor={currentDate}
+            weekAnchor={weekAnchor}
             activeDayIndex={activeDayIndex}
             onActiveDayChange={setActiveDayIndex}
             isDragOver={isTodoDragOver}

@@ -1,47 +1,34 @@
 # Navi
 
-一个本地 Web 服务 + CLI 工具，用于辅助管理本地知识库，工作流, 社交媒体点赞，订阅稍后阅读。
+本地 Web 服务，作为你每天打开的第一个页面 — 告诉你现在该做什么、长期任务进行到哪、该做实验或采集灵感了。
 
-## 项目概述
+## 定位
 
-Navi 是一个本地化的个人知识管理和内容管理平台，提供 Web 界面和命令行工具，帮助你：
-- 📚 **本地知识库增强**：增强现有知识库的功能，提供搜索、关联、索引等增强能力
-- 📖 **每日阅读**：记录和管理每日阅读内容，追踪阅读进度和笔记
-- 🔄 **工作流**：自定义工作流程，自动化日常任务
-- 👍 **社交媒体点赞**：收集和管理社交媒体上的点赞内容
-- 📌 **订阅稍后阅读**：订阅和管理稍后阅读列表，支持多种来源
+**Navi = 每日启动点 + 任务上下文中心**
 
-## 核心特性
+- **周计划**：追踪今天/本周正在做的任务，拖拽安排与执行
+- **项目追踪**：封装长期项目的进展与周记，保持上下文
+- **长期提醒**：实验、灵感采集、周期性任务的追踪层（进行中）
+- **信息归档**：自动收集与归档关注的信息（规划中）
 
-### 1. 本地知识库增强
-- 全文搜索：快速检索现有知识库内容
-- 智能索引：自动索引和更新知识库内容
-- 关联关系：自动发现和建立知识点之间的关联
-- 内容增强：为现有知识库添加元数据、标签等增强信息
+不在 Navi 里复刻 Obsidian 查看器或通用 Agent 管理器 — 电脑前用官方工具即可。Agent、Vault 等能力保留在代码中，供未来按项目按需搭建 Workspace 时调用。
 
-### 2. 工作流
-- 自定义流程：创建和管理个人工作流程
-- 任务自动化：自动化重复性任务
-- 流程模板：使用预设模板快速创建流程
+## 路线图
 
-### 3. 社交媒体点赞
-- 内容收集：收集点赞的内容
-- 内容分类：对收集的内容进行分类和标签
-- 内容回顾：定期回顾和管理收集的内容
-
-### 4. 订阅稍后阅读
-- 多源订阅：支持从多个来源订阅内容
-- 稍后阅读列表：管理待阅读的内容队列
-- 阅读提醒：设置提醒，确保及时阅读
-- 阅读状态：追踪阅读状态和进度
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| 一 | 隐藏非核心入口，聚焦日常模块 | 完成 |
+| 二 | Dashboard Daily Hub、周计划补齐、长期任务 tracker | 完成 |
+| 三 | 信息收集与归档（手动收件箱已接入，更多来源按需扩展） | 基础完成 |
+| 四 | Workspace 按需搭建（类型已预留，有具体项目需求时启动） | 远期 |
 
 ## 技术栈
 
 - **前端**：Next.js 16 + React 19 + TypeScript
 - **UI 组件**：Radix UI + Tailwind CSS
-- **数据库**：SQLite 
+- **数据库**：SQLite（Kysely + better-sqlite3）
 - **认证**：TOTP 双因素认证
-- **状态管理**：Zustand + SWR
+- **状态管理**：Zustand
 
 ## 快速开始
 
@@ -54,19 +41,20 @@ npm install
 
 ### 配置环境变量
 
-创建 `.env` 文件并配置：
+复制 `.env.template` 为 `.env` 并配置：
 
 ```env
 DB_FILE_NAME=file:./local.db
+SESSION_SECRET=your-session-secret
 TOTP_SECRET=your-totp-secret
-TASKS_ROOT_DIR=./tasks  # 任务根目录（可选，默认为 ./tasks）
+CURSOR_API_KEY=your-cursor-api-key
+AGENT_LOCAL_CWD=/path/to/your/notes-or-code
 ```
 
 ### 初始化数据库
 
 ```bash
-npm run db:push
-npm run db:generate
+npm run db:init
 ```
 
 ### 启动开发服务器
@@ -81,28 +69,23 @@ npm run dev
 
 ```
 navi/
-├── studio/          # Web 服务（Next.js 应用）
-│   ├── app/         # Next.js 应用路由
-│   ├── components/  # React 组件
-│   ├── modules/     # 业务模块
-│   └── prisma/      # 数据库 schema
-├── cli/             # CLI 工具（开发中）
-└── proofs/          # 概念验证代码
+├── studio/              # Web 服务（Next.js 应用）
+│   ├── app/             # 路由与 API
+│   ├── feature/         # UI 功能模块
+│   ├── backstage/       # 服务层（db、agent、projects、week-plan）
+│   └── types/           # 共享类型
+├── scripts/obsidian/    # Obsidian 维护脚本（合并周报、备份）
+└── bridge/              # 独立工具脚本（AI commit 等）
 ```
 
 ## 开发
 
-### 数据库管理
+### 数据库
+
+Schema 定义在 `studio/backstage/db/init-db.ts`，初始化：
 
 ```bash
-# 推送 schema 变更
-npm run db:push
-
-# 生成 Prisma Client
-npm run db:generate
-
-# 打开 Prisma Studio
-npm run db:studio
+cd studio && npm run db:init
 ```
 
 ### 构建生产版本
@@ -111,10 +94,6 @@ npm run db:studio
 npm run build
 npm run start
 ```
-
-## 贡献指南
-
-欢迎贡献代码、提出建议或报告问题！
 
 ## 许可证
 

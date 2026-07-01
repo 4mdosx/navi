@@ -45,4 +45,49 @@ export interface Database {
     createdAt: string
     updatedAt: string
   }
+  week_plan_pending: {
+    id: string
+    title: string
+    estimatedHours: number
+    hour: number
+    sortOrder: number
+    createdAt: string
+    updatedAt: string
+  }
+  week_plan_todos: {
+    id: string
+    title: string
+    content: string
+    status: string
+    estimatedHours: number
+    hour: number
+    dayIndex: number
+    weekStart: string
+    startedAt: string | null
+    completedAt: string | null
+    createdAt: string
+    updatedAt: string
+  }
+  tracker_items: {
+    id: string
+    title: string
+    kind: string
+    status: string
+    cadence: string | null
+    lastTouchedAt: string | null
+    notes: string
+    createdAt: string
+    updatedAt: string
+  }
+  inbox_items: {
+    id: string
+    title: string
+    url: string | null
+    source: string
+    status: string
+    tags: string
+    notes: string
+    createdAt: string
+    updatedAt: string
+  }
 }
