@@ -1,11 +1,18 @@
 import 'server-only'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '@/backstage/db/database'
+import {
+  hoursToMinutes,
+  minutesToHours,
+  normalizeEstimatedHours,
+} from '@/backstage/week-plan/week-plan-hours'
 import type {
   WeekPlanData,
   WeekPlanPendingActivity,
   WeekPlanTodo,
   TodoStatus,
+  CreateTodoTreeInput,
+  CreateTodoTreeResult,
 } from '@/types/week-plan'
 
 const VALID_STATUSES = new Set<TodoStatus>(['active', 'pending', 'done'])
@@ -35,12 +42,35 @@ function mapPendingRow(row: {
   }
 }
 
+function rowEstimatedHours(row: {
+  estimatedMinutes?: number | null
+  estimatedHours: number
+}): number {
+  if (row.estimatedMinutes != null && row.estimatedMinutes > 0) {
+    return minutesToHours(row.estimatedMinutes)
+  }
+  return normalizeEstimatedHours(row.estimatedHours)
+}
+
+function durationFields(estimatedHours?: number) {
+  const hours = normalizeEstimatedHours(estimatedHours ?? 1)
+  const estimatedMinutes = hoursToMinutes(hours)
+  return {
+    estimatedHours: Math.max(1, Math.round(hours)),
+    estimatedMinutes,
+    hour: Math.max(1, Math.round(hours)),
+  }
+}
+
 function mapTodoRow(row: {
   id: string
+  parentId?: string | null
+  sortOrder?: number | null
   title: string
   content: string
   status: string
   estimatedHours: number
+  estimatedMinutes?: number | null
   hour: number
   dayIndex: number
   weekStart: string
@@ -52,12 +82,15 @@ function mapTodoRow(row: {
   const status = VALID_STATUSES.has(row.status as TodoStatus)
     ? (row.status as TodoStatus)
     : 'pending'
+  const estimatedHours = rowEstimatedHours(row)
   return {
     id: row.id,
+    parentId: row.parentId ?? null,
+    sortOrder: row.sortOrder ?? 0,
     title: row.title,
     content: row.content ?? '',
     status,
-    estimatedHours: row.estimatedHours,
+    estimatedHours,
     hour: row.hour,
     dayIndex: row.dayIndex,
     weekStart: row.weekStart,
@@ -104,19 +137,21 @@ export async function createWeekPlanTodo(input: {
   const db = await getDatabase()
   const now = new Date().toISOString()
   const id = `todo-${Date.now()}-${nanoid(8)}`
-  const estimatedHours = Math.max(1, Math.round(input.estimatedHours ?? 1))
-  const hour = Math.max(1, Math.round(input.hour ?? 1))
+  const duration = durationFields(input.estimatedHours)
   const status = input.status ?? 'pending'
 
   await db
     .insertInto('week_plan_todos')
     .values({
       id,
+      parentId: null,
+      sortOrder: 0,
       title: input.title.trim(),
       content: '',
       status,
-      estimatedHours,
-      hour,
+      estimatedHours: duration.estimatedHours,
+      estimatedMinutes: duration.estimatedMinutes,
+      hour: input.hour != null ? Math.max(1, Math.round(input.hour)) : duration.hour,
       dayIndex: input.dayIndex,
       weekStart: input.weekStart,
       startedAt: toIsoOrNull(input.startedAtMs),
@@ -133,6 +168,107 @@ export async function createWeekPlanTodo(input: {
     .executeTakeFirstOrThrow()
 
   return mapTodoRow(row)
+}
+
+export async function createWeekPlanTodoTree(
+  input: CreateTodoTreeInput
+): Promise<CreateTodoTreeResult> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+
+  const subtasks = input.subtasks ?? []
+  const hasSubtasks = subtasks.length > 0
+
+  if (!hasSubtasks) {
+    const rootInput =
+      input.root ??
+      (input.parent ? { title: input.parent.title, estimatedHours: 1 } : null)
+    if (!rootInput?.title?.trim()) {
+      throw new Error('root title is required')
+    }
+    const root = await createWeekPlanTodo({
+      title: rootInput.title,
+      dayIndex: input.dayIndex,
+      weekStart: input.weekStart,
+      estimatedHours: rootInput.estimatedHours,
+    })
+    return { root }
+  }
+
+  if (!input.parent?.title?.trim()) {
+    throw new Error('parent title is required when subtasks are provided')
+  }
+
+  const parentId = `todo-${Date.now()}-${nanoid(8)}`
+  const parentDuration = durationFields(
+    subtasks.reduce((sum, s) => sum + normalizeEstimatedHours(s.estimatedHours), 0)
+  )
+
+  await db.transaction().execute(async (trx) => {
+    await trx
+      .insertInto('week_plan_todos')
+      .values({
+        id: parentId,
+        parentId: null,
+        sortOrder: 0,
+        title: input.parent!.title.trim(),
+        content: '',
+        status: 'pending',
+        estimatedHours: parentDuration.estimatedHours,
+        estimatedMinutes: parentDuration.estimatedMinutes,
+        hour: parentDuration.hour,
+        dayIndex: input.dayIndex,
+        weekStart: input.weekStart,
+        startedAt: null,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .execute()
+
+    for (let i = 0; i < subtasks.length; i++) {
+      const sub = subtasks[i]
+      const duration = durationFields(sub.estimatedHours)
+      await trx
+        .insertInto('week_plan_todos')
+        .values({
+          id: `todo-${Date.now()}-${nanoid(8)}`,
+          parentId,
+          sortOrder: i,
+          title: sub.title.trim(),
+          content: '',
+          status: 'pending',
+          estimatedHours: duration.estimatedHours,
+          estimatedMinutes: duration.estimatedMinutes,
+          hour: duration.hour,
+          dayIndex: input.dayIndex,
+          weekStart: input.weekStart,
+          startedAt: null,
+          completedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .execute()
+    }
+  })
+
+  const parentRow = await db
+    .selectFrom('week_plan_todos')
+    .selectAll()
+    .where('id', '=', parentId)
+    .executeTakeFirstOrThrow()
+
+  const subtaskRows = await db
+    .selectFrom('week_plan_todos')
+    .selectAll()
+    .where('parentId', '=', parentId)
+    .orderBy('sortOrder', 'asc')
+    .execute()
+
+  return {
+    parent: mapTodoRow(parentRow),
+    subtasks: subtaskRows.map(mapTodoRow),
+  }
 }
 
 export async function addTodoFromPendingActivity(input: {
@@ -161,12 +297,14 @@ export async function addTodoFromPendingActivity(input: {
     .execute()
 
   if (existing) {
+    const duration = durationFields(input.day)
     await db
       .updateTable('week_plan_todos')
       .set({
         title: input.title,
         status: 'active',
-        estimatedHours: Math.max(1, Math.round(input.day)),
+        estimatedHours: duration.estimatedHours,
+        estimatedMinutes: duration.estimatedMinutes,
         hour: Math.max(1, Math.round(input.hour)),
         dayIndex: input.dayIndex,
         weekStart: input.weekStart,
@@ -177,14 +315,18 @@ export async function addTodoFromPendingActivity(input: {
       .where('id', '=', input.id)
       .execute()
   } else {
+    const duration = durationFields(input.day)
     await db
       .insertInto('week_plan_todos')
       .values({
         id: input.id,
+        parentId: null,
+        sortOrder: 0,
         title: input.title.trim(),
         content: '',
         status: 'active',
-        estimatedHours: Math.max(1, Math.round(input.day)),
+        estimatedHours: duration.estimatedHours,
+        estimatedMinutes: duration.estimatedMinutes,
         hour: Math.max(1, Math.round(input.hour)),
         dayIndex: input.dayIndex,
         weekStart: input.weekStart,
@@ -260,6 +402,7 @@ export async function moveTodoToPending(
       .execute()
   }
 
+  await db.deleteFrom('week_plan_todos').where('parentId', '=', id).execute()
   await db.deleteFrom('week_plan_todos').where('id', '=', id).execute()
 
   const pendingRows = await db
@@ -289,6 +432,15 @@ export async function startWeekPlanTodo(
   const db = await getDatabase()
   const now = Date.now()
   const nowIso = new Date(now).toISOString()
+
+  const child = await db
+    .selectFrom('week_plan_todos')
+    .select('id')
+    .where('parentId', '=', id)
+    .executeTakeFirst()
+  if (child) {
+    throw new Error('Cannot start a parent todo with subtasks; start a subtask instead')
+  }
 
   await db
     .updateTable('week_plan_todos')
@@ -344,13 +496,31 @@ export async function completeWeekPlanTodo(id: string): Promise<WeekPlanTodo> {
 
 export async function deleteWeekPlanTodo(id: string): Promise<void> {
   const db = await getDatabase()
-  const result = await db
-    .deleteFrom('week_plan_todos')
+  const existing = await db
+    .selectFrom('week_plan_todos')
+    .select(['id', 'parentId'])
     .where('id', '=', id)
     .executeTakeFirst()
-  if (Number(result.numDeletedRows) === 0) {
+
+  if (!existing) {
     throw new Error(`Todo not found: ${id}`)
   }
+
+  await db.transaction().execute(async (trx) => {
+    if (existing.parentId == null) {
+      await trx
+        .deleteFrom('week_plan_todos')
+        .where('parentId', '=', id)
+        .execute()
+    }
+    const result = await trx
+      .deleteFrom('week_plan_todos')
+      .where('id', '=', id)
+      .executeTakeFirst()
+    if (Number(result.numDeletedRows) === 0) {
+      throw new Error(`Todo not found: ${id}`)
+    }
+  })
 }
 
 export async function createPendingActivity(input: {

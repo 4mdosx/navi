@@ -114,10 +114,13 @@ function initializeDatabase(): void {
     sqlite.exec(`
       CREATE TABLE IF NOT EXISTS week_plan_todos (
         id TEXT PRIMARY KEY,
+        parentId TEXT,
+        sortOrder INTEGER NOT NULL DEFAULT 0,
         title TEXT NOT NULL,
         content TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'pending',
         estimatedHours INTEGER NOT NULL DEFAULT 1,
+        estimatedMinutes INTEGER NOT NULL DEFAULT 60,
         hour INTEGER NOT NULL DEFAULT 1,
         dayIndex INTEGER NOT NULL,
         weekStart TEXT NOT NULL,
@@ -131,6 +134,11 @@ function initializeDatabase(): void {
     sqlite.exec(`
       CREATE INDEX IF NOT EXISTS idx_week_plan_todos_weekStart
       ON week_plan_todos(weekStart)
+    `)
+
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_week_plan_todos_parentId
+      ON week_plan_todos(parentId)
     `)
 
     sqlite.exec(`
@@ -169,6 +177,23 @@ function initializeDatabase(): void {
     sqlite.exec(`
       CREATE INDEX IF NOT EXISTS idx_inbox_items_status
       ON inbox_items(status)
+    `)
+
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS llm_interaction_logs (
+        id TEXT PRIMARY KEY,
+        feature TEXT NOT NULL,
+        model TEXT NOT NULL,
+        requestJson TEXT NOT NULL,
+        responseText TEXT,
+        error TEXT,
+        createdAt TEXT NOT NULL
+      )
+    `)
+
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_llm_interaction_logs_feature_createdAt
+      ON llm_interaction_logs(feature, createdAt DESC)
     `)
 
     const pendingCount = sqlite

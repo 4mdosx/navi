@@ -3,6 +3,7 @@ import {
   addTodoFromPendingActivity,
   completeWeekPlanTodo,
   createWeekPlanTodo,
+  createWeekPlanTodoTree,
   deleteWeekPlanTodo,
   moveTodoToPending,
   startWeekPlanTodo,
@@ -26,6 +27,36 @@ export async function POST(request: NextRequest) {
         hour: Number(hour) || 1,
         dayIndex,
         weekStart: String(weekStart),
+      })
+      return NextResponse.json({ success: true, ...result })
+    }
+
+    if (action === 'createTree') {
+      const { dayIndex, weekStart, parent, subtasks, root } = body
+      if (typeof dayIndex !== 'number' || !weekStart) {
+        return NextResponse.json(
+          { error: 'dayIndex and weekStart are required' },
+          { status: 400 }
+        )
+      }
+      const result = await createWeekPlanTodoTree({
+        dayIndex,
+        weekStart: String(weekStart),
+        parent: parent ? { title: String(parent.title ?? '') } : undefined,
+        subtasks: Array.isArray(subtasks)
+          ? subtasks.map((s: { title?: string; estimatedHours?: number }) => ({
+              title: String(s.title ?? ''),
+              estimatedHours:
+                s.estimatedHours != null ? Number(s.estimatedHours) : 0.5,
+            }))
+          : undefined,
+        root: root
+          ? {
+              title: String(root.title ?? ''),
+              estimatedHours:
+                root.estimatedHours != null ? Number(root.estimatedHours) : 1,
+            }
+          : undefined,
       })
       return NextResponse.json({ success: true, ...result })
     }

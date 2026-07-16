@@ -2,17 +2,34 @@ import type {
   WeekPlanData,
   WeekPlanPendingActivity,
   WeekPlanTodo,
+  ParseTodoCopilotResult,
+  CreateTodoTreeResult,
 } from '@/types/week-plan'
 import { formatWeekStart } from '@/backstage/week-plan/week-utils'
 
 export const formatWeekStartClient = formatWeekStart
 
+export type CopilotLlmLog = {
+  id: string
+  feature: string
+  model: string
+  messages: Array<{ role: string; content: string }>
+  requestMeta?: { temperature?: number; maxTokens?: number }
+  responseText: string | null
+  error: string | null
+  createdAt: string
+}
+
 async function parseJson<T>(res: Response): Promise<T> {
   const data = await res.json()
   if (!res.ok) {
-    throw new Error(
+    const err = new Error(
       typeof data?.error === 'string' ? data.error : 'Request failed'
-    )
+    ) as Error & { logId?: string }
+    if (typeof data?.logId === 'string') {
+      err.logId = data.logId
+    }
+    throw err
   }
   return data as T
 }
@@ -143,4 +160,48 @@ export async function apiDeletePending(id: string): Promise<void> {
     body: JSON.stringify({ id }),
   })
   await parseJson(res)
+}
+
+export async function apiParseTodoCopilot(input: {
+  text: string
+  dayLabel?: string
+}): Promise<ParseTodoCopilotResult> {
+  const res = await fetch('/api/week-plan/parse-todo', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const data = await parseJson<ParseTodoCopilotResult & { success?: boolean }>(res)
+  return {
+    parent: data.parent ?? null,
+    subtasks: data.subtasks ?? [],
+    root: data.root ?? null,
+    logId: data.logId,
+  }
+}
+
+export async function apiFetchCopilotLog(id: string): Promise<CopilotLlmLog> {
+  const res = await fetch(
+    `/api/week-plan/parse-todo?id=${encodeURIComponent(id)}`,
+    { credentials: 'include' }
+  )
+  const data = await parseJson<{ log: CopilotLlmLog }>(res)
+  return data.log
+}
+
+export async function apiCreateTodoTree(input: {
+  dayIndex: number
+  weekStart: string
+  parent?: { title: string }
+  subtasks?: Array<{ title: string; estimatedHours: number }>
+  root?: { title: string; estimatedHours: number }
+}): Promise<CreateTodoTreeResult> {
+  const res = await fetch('/api/week-plan/todos', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'createTree', ...input }),
+  })
+  return parseJson(res)
 }

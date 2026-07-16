@@ -1,10 +1,12 @@
 import { create } from 'zustand'
 import type { WeekPlanPendingActivity, WeekPlanTodo } from '@/types/week-plan'
+import { normalizeEstimatedHours } from '@/backstage/week-plan/week-plan-hours'
 import {
   apiAddTodoFromPending,
   apiCompleteTodo,
   apiCreatePending,
   apiCreateTodo,
+  apiCreateTodoTree,
   apiDeletePending,
   apiDeleteTodo,
   apiMoveTodoToPending,
@@ -35,6 +37,8 @@ export type TodoStatus = 'active' | 'pending' | 'done'
 
 export type TodoItem = {
   id: string
+  parentId: string | null
+  sortOrder: number
   title: string
   status: TodoStatus
   estimatedHours: number
@@ -43,11 +47,14 @@ export type TodoItem = {
   dayIndex: number
   startedAtMs?: number
   completedAtMs?: number
+  subtasks?: TodoItem[]
 }
 
 function mapTodo(t: WeekPlanTodo): TodoItem {
   return {
     id: t.id,
+    parentId: t.parentId,
+    sortOrder: t.sortOrder,
     title: t.title,
     status: t.status,
     estimatedHours: t.estimatedHours,
@@ -67,6 +74,26 @@ function mapPending(p: WeekPlanPendingActivity): PendingActivity {
   }
 }
 
+export function buildTodoTree(flat: TodoItem[]): TodoItem[] {
+  const nodes = new Map(flat.map((t) => [t.id, { ...t, subtasks: [] as TodoItem[] }]))
+  const roots: TodoItem[] = []
+
+  for (const t of flat) {
+    const node = nodes.get(t.id)!
+    if (t.parentId && nodes.has(t.parentId)) {
+      nodes.get(t.parentId)!.subtasks!.push(node)
+    } else if (!t.parentId) {
+      roots.push(node)
+    }
+  }
+
+  for (const root of roots) {
+    root.subtasks?.sort((a, b) => a.sortOrder - b.sortOrder)
+  }
+
+  return roots
+}
+
 type TodoStore = {
   weekStart: string | null
   isLoading: boolean
@@ -84,6 +111,12 @@ type TodoStore = {
     title: string
     dayIndex: number
     estimatedHours?: number
+  }) => Promise<void>
+  addTodoTree: (input: {
+    dayIndex: number
+    parent?: { title: string }
+    subtasks?: Array<{ title: string; estimatedHours: number }>
+    root?: { title: string; estimatedHours: number }
   }) => Promise<void>
   addPending: (input: {
     title: string
@@ -181,11 +214,32 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
         title: trimmed,
         dayIndex,
         weekStart,
-        estimatedHours,
+        estimatedHours: normalizeEstimatedHours(estimatedHours),
       })
       set({ todos: [mapTodo(todo), ...get().todos] })
     } catch (error) {
       console.error('Failed to add todo:', error)
+    }
+  },
+  addTodoTree: async ({ dayIndex, parent, subtasks, root }) => {
+    const { weekStart } = get()
+    if (!weekStart) return
+    try {
+      const result = await apiCreateTodoTree({
+        dayIndex,
+        weekStart,
+        parent,
+        subtasks,
+        root,
+      })
+      const created: TodoItem[] = []
+      if (result.root) created.push(mapTodo(result.root))
+      if (result.parent) created.push(mapTodo(result.parent))
+      if (result.subtasks) created.push(...result.subtasks.map(mapTodo))
+      set({ todos: [...created, ...get().todos] })
+    } catch (error) {
+      console.error('Failed to add todo tree:', error)
+      throw error
     }
   },
   startTodo: async (id) => {
@@ -219,7 +273,9 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
   removeTodo: async (id) => {
     try {
       await apiDeleteTodo(id)
-      set({ todos: get().todos.filter((t) => t.id !== id) })
+      set({
+        todos: get().todos.filter((t) => t.id !== id && t.parentId !== id),
+      })
     } catch (error) {
       console.error('Failed to remove todo:', error)
     }

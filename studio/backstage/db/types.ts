@@ -56,10 +56,13 @@ export interface Database {
   }
   week_plan_todos: {
     id: string
+    parentId: string | null
+    sortOrder: number
     title: string
     content: string
     status: string
     estimatedHours: number
+    estimatedMinutes: number
     hour: number
     dayIndex: number
     weekStart: string
@@ -89,5 +92,14 @@ export interface Database {
     notes: string
     createdAt: string
     updatedAt: string
+  }
+  llm_interaction_logs: {
+    id: string
+    feature: string
+    model: string
+    requestJson: string
+    responseText: string | null
+    error: string | null
+    createdAt: string
   }
 }

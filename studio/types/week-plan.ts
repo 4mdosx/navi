@@ -11,6 +11,8 @@ export type WeekPlanPendingActivity = {
 
 export type WeekPlanTodo = {
   id: string
+  parentId: string | null
+  sortOrder: number
   title: string
   content: string
   status: TodoStatus
@@ -23,6 +25,35 @@ export type WeekPlanTodo = {
   completedAtMs?: number
   createdAt: string
   updatedAt: string
+}
+
+export type TodoDraft = {
+  id: string
+  parentId: string | null
+  title: string
+  estimatedHours: number
+  sortOrder: number
+}
+
+export type ParseTodoCopilotResult = {
+  parent: TodoDraft | null
+  subtasks: TodoDraft[]
+  root: TodoDraft | null
+  logId: string
+}
+
+export type CreateTodoTreeInput = {
+  dayIndex: number
+  weekStart: string
+  parent?: { title: string }
+  subtasks?: Array<{ title: string; estimatedHours: number }>
+  root?: { title: string; estimatedHours: number }
+}
+
+export type CreateTodoTreeResult = {
+  parent?: WeekPlanTodo
+  subtasks?: WeekPlanTodo[]
+  root?: WeekPlanTodo
 }
 
 export type WeekPlanData = {

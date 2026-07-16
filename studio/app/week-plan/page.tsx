@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Check, ChevronLeft, ChevronRight, Circle, Play, Plus, Trash2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Circle, Play, Plus, Search, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,15 +14,18 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { formatEstimatedDuration, normalizeEstimatedHours } from '@/backstage/week-plan/week-plan-hours'
 import { cn } from '@/lib/utils'
 import {
+  buildTodoTree,
   hasActivityDragPayload,
   parseActivityDragPayload,
   useTodoStore,
   type ActivityDragPayload,
   type TodoItem,
 } from './todo-store'
-import { formatWeekStartClient } from './week-plan-api'
+import { apiFetchCopilotLog, apiParseTodoCopilot, formatWeekStartClient, type CopilotLlmLog } from './week-plan-api'
 import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
 
 function getSundayOfWeekContaining(date: Date): Date {
@@ -181,12 +184,18 @@ function PendingActivityCard({
 function TodoRow({
   item,
   now,
+  depth = 0,
+  hasChildren = false,
+  subtaskProgress,
   onStart,
   onComplete,
   onRemove,
 }: {
   item: TodoItem
   now: number
+  depth?: number
+  hasChildren?: boolean
+  subtaskProgress?: { done: number; total: number }
   onStart: () => void
   onComplete: () => void
   onRemove: () => void
@@ -196,8 +205,10 @@ function TodoRow({
   const isDone = item.status === 'done'
   const elapsed =
     isActive && item.startedAtMs != null ? formatElapsed(now - item.startedAtMs) : null
+  const canDrag = !hasChildren
 
   const onDragStart = (e: React.DragEvent) => {
+    if (!canDrag) return
     const payloadObj = {
       kind: 'week-activity',
       source: 'todo',
@@ -215,11 +226,13 @@ function TodoRow({
 
   return (
     <li
-      draggable
+      draggable={canDrag}
       onDragStart={onDragStart}
       onDragEnd={() => setDraggingPayload(null)}
       className={cn(
-        'group flex cursor-grab items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors active:cursor-grabbing',
+        'group flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors',
+        depth > 0 && 'ml-6 border-dashed',
+        canDrag && 'cursor-grab active:cursor-grabbing',
         isActive &&
           'border-emerald-300/80 bg-emerald-50/80 dark:border-emerald-700/60 dark:bg-emerald-950/30',
         !isActive &&
@@ -230,14 +243,16 @@ function TodoRow({
     >
       <button
         type="button"
-        onClick={isDone ? undefined : onComplete}
-        disabled={isDone}
-        aria-label={isDone ? '已完成' : '标记完成'}
+        onClick={isDone || hasChildren ? undefined : onComplete}
+        disabled={isDone || hasChildren}
+        aria-label={isDone ? '已完成' : hasChildren ? '父任务' : '标记完成'}
         className={cn(
           'flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors',
           isDone
             ? 'border-emerald-500 bg-emerald-500 text-white'
-            : 'border-neutral-300 text-neutral-400 hover:border-emerald-500 hover:text-emerald-600 dark:border-neutral-600 dark:hover:border-emerald-500'
+            : hasChildren
+              ? 'border-neutral-200 bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800'
+              : 'border-neutral-300 text-neutral-400 hover:border-emerald-500 hover:text-emerald-600 dark:border-neutral-600 dark:hover:border-emerald-500'
         )}
       >
         {isDone ? <Check className="size-3.5" /> : <Circle className="size-3.5" />}
@@ -248,7 +263,8 @@ function TodoRow({
           <span
             className={cn(
               'truncate text-sm font-medium',
-              isDone && 'line-through text-neutral-500'
+              isDone && 'line-through text-neutral-500',
+              depth > 0 && 'text-neutral-700 dark:text-neutral-300'
             )}
           >
             {item.title}
@@ -258,9 +274,14 @@ function TodoRow({
               进行中
             </span>
           )}
+          {hasChildren && subtaskProgress && (
+            <span className="shrink-0 text-[10px] text-neutral-500">
+              {subtaskProgress.done}/{subtaskProgress.total} 完成
+            </span>
+          )}
         </div>
         <p className="mt-0.5 text-xs text-neutral-500">
-          预计 {item.estimatedHours} 小时
+          预计 {formatEstimatedDuration(item.estimatedHours)}
           {elapsed != null && (
             <span className="ml-2 tabular-nums text-emerald-700 dark:text-emerald-400">
               · {elapsed}
@@ -270,7 +291,7 @@ function TodoRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-        {!isDone && !isActive && (
+        {!isDone && !isActive && !hasChildren && (
           <button
             type="button"
             onClick={onStart}
@@ -293,23 +314,115 @@ function TodoRow({
   )
 }
 
+type DraftSubtask = {
+  id: string
+  parentId: string
+  title: string
+  estimatedHours: string
+}
+
+const DRAFT_PARENT_ID = 'parent-draft'
+
+function createDraftSubtask(): DraftSubtask {
+  return {
+    id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    parentId: DRAFT_PARENT_ID,
+    title: '',
+    estimatedHours: '0.5',
+  }
+}
+
+function TodoRowGroup({
+  item,
+  now,
+  depth = 0,
+  onStart,
+  onComplete,
+  onRemove,
+}: {
+  item: TodoItem
+  now: number
+  depth?: number
+  onStart: (id: string) => void
+  onComplete: (id: string) => void
+  onRemove: (id: string) => void
+}) {
+  const children = item.subtasks ?? []
+  const hasChildren = children.length > 0
+  const doneCount = children.filter((s) => s.status === 'done').length
+
+  return (
+    <>
+      <TodoRow
+        item={item}
+        now={now}
+        depth={depth}
+        hasChildren={hasChildren}
+        subtaskProgress={hasChildren ? { done: doneCount, total: children.length } : undefined}
+        onStart={() => onStart(item.id)}
+        onComplete={() => onComplete(item.id)}
+        onRemove={() => onRemove(item.id)}
+      />
+      {children.map((sub) => (
+        <TodoRowGroup
+          key={sub.id}
+          item={sub}
+          now={now}
+          depth={depth + 1}
+          onStart={onStart}
+          onComplete={onComplete}
+          onRemove={onRemove}
+        />
+      ))}
+    </>
+  )
+}
+
 function AddTodoDialog({
   open,
   onOpenChange,
   dayLabel,
-  onSubmit,
+  onSubmitTree,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   dayLabel: string
-  onSubmit: (values: { title: string; estimatedHours: number }) => void
+  onSubmitTree: (input: {
+    parent?: { title: string }
+    subtasks?: Array<{ title: string; estimatedHours: number }>
+    root?: { title: string; estimatedHours: number }
+  }) => Promise<void>
 }) {
+  const [copilotText, setCopilotText] = useState('')
+  const [parsing, setParsing] = useState(false)
+  const [parseError, setParseError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [estimatedHours, setEstimatedHours] = useState('1')
+  const [parentTitle, setParentTitle] = useState('')
+  const [subtasks, setSubtasks] = useState<DraftSubtask[]>([])
+  const [treeMode, setTreeMode] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [lastLogId, setLastLogId] = useState<string | null>(null)
+  const [inspectOpen, setInspectOpen] = useState(false)
+  const [inspectLog, setInspectLog] = useState<CopilotLlmLog | null>(null)
+  const [inspectLoading, setInspectLoading] = useState(false)
+  const [inspectError, setInspectError] = useState<string | null>(null)
 
   const reset = useCallback(() => {
+    setCopilotText('')
+    setParsing(false)
+    setParseError(null)
     setTitle('')
     setEstimatedHours('1')
+    setParentTitle('')
+    setSubtasks([])
+    setTreeMode(false)
+    setSubmitting(false)
+    setLastLogId(null)
+    setInspectOpen(false)
+    setInspectLog(null)
+    setInspectLoading(false)
+    setInspectError(null)
   }, [])
 
   const handleOpenChange = useCallback(
@@ -320,24 +433,170 @@ function AddTodoDialog({
     [onOpenChange, reset]
   )
 
-  const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault()
-      const trimmed = title.trim()
-      if (!trimmed) return
-      const hours = Math.max(1, Math.round(Number(estimatedHours) || 1))
-      onSubmit({ title: trimmed, estimatedHours: hours })
-      handleOpenChange(false)
+  const applyParseResult = useCallback(
+    (result: Awaited<ReturnType<typeof apiParseTodoCopilot>>) => {
+      if (result.subtasks.length > 0 && result.parent) {
+        setTreeMode(true)
+        setParentTitle(result.parent.title)
+        setSubtasks(
+          result.subtasks.map((s) => ({
+            id: s.id,
+            parentId: result.parent!.id,
+            title: s.title,
+            estimatedHours: String(s.estimatedHours),
+          }))
+        )
+        setTitle('')
+        setEstimatedHours('1')
+      } else if (result.root) {
+        setTreeMode(false)
+        setTitle(result.root.title)
+        setEstimatedHours(String(result.root.estimatedHours))
+        setParentTitle('')
+        setSubtasks([])
+      }
     },
-    [title, estimatedHours, onSubmit, handleOpenChange]
+    []
   )
+
+  const runParse = useCallback(async () => {
+    const text = copilotText.trim()
+    if (!text || parsing) return
+    setParsing(true)
+    setParseError(null)
+    setInspectOpen(false)
+    setInspectLog(null)
+    setInspectError(null)
+    try {
+      const result = await apiParseTodoCopilot({ text, dayLabel })
+      setLastLogId(result.logId)
+      applyParseResult(result)
+    } catch (error) {
+      const err = error as Error & { logId?: string }
+      if (err.logId) setLastLogId(err.logId)
+      setParseError(err.message ?? '解析失败')
+    } finally {
+      setParsing(false)
+    }
+  }, [applyParseResult, copilotText, dayLabel, parsing])
+
+  const openInspect = useCallback(async () => {
+    if (!lastLogId) return
+    setInspectOpen(true)
+    setInspectLoading(true)
+    setInspectError(null)
+    try {
+      const log = await apiFetchCopilotLog(lastLogId)
+      setInspectLog(log)
+    } catch (error) {
+      setInspectLog(null)
+      setInspectError(error instanceof Error ? error.message : '加载日志失败')
+    } finally {
+      setInspectLoading(false)
+    }
+  }, [lastLogId])
+
+  const enterTreeMode = useCallback(() => {
+    setTreeMode(true)
+    setParentTitle((prev) => prev.trim() || title.trim())
+    setTitle('')
+    setEstimatedHours('1')
+    setSubtasks((prev) => (prev.length > 0 ? prev : [createDraftSubtask()]))
+  }, [title])
+
+  const addSubtask = useCallback(() => {
+    if (!treeMode) {
+      enterTreeMode()
+      return
+    }
+    setSubtasks((prev) => [...prev, createDraftSubtask()])
+  }, [enterTreeMode, treeMode])
+
+  const removeSubtask = useCallback((index: number) => {
+    setSubtasks((prev) => {
+      const next = prev.filter((_, i) => i !== index)
+      if (next.length === 0) {
+        setTreeMode(false)
+        setParentTitle((parent) => {
+          const p = parent.trim()
+          if (p) setTitle((t) => t.trim() || p)
+          return ''
+        })
+      }
+      return next
+    })
+  }, [])
+
+  const exitTreeMode = useCallback(() => {
+    setTreeMode(false)
+    setSubtasks([])
+    setParentTitle((parent) => {
+      const p = parent.trim()
+      if (p) setTitle((t) => t.trim() || p)
+      return ''
+    })
+  }, [])
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      if (submitting) return
+      setSubmitting(true)
+      try {
+        if (treeMode && subtasks.length > 0) {
+          const trimmedParent = parentTitle.trim()
+          if (!trimmedParent) return
+          const validSubs = subtasks
+            .map((s) => ({
+              title: s.title.trim(),
+              estimatedHours: normalizeEstimatedHours(Number(s.estimatedHours) || 0.5),
+            }))
+            .filter((s) => s.title)
+          if (validSubs.length === 0) return
+          await onSubmitTree({ parent: { title: trimmedParent }, subtasks: validSubs })
+        } else {
+          const trimmed = title.trim()
+          if (!trimmed) return
+          await onSubmitTree({
+            root: {
+              title: trimmed,
+              estimatedHours: normalizeEstimatedHours(Number(estimatedHours) || 1),
+            },
+          })
+        }
+        handleOpenChange(false)
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [
+      treeMode,
+      subtasks,
+      parentTitle,
+      title,
+      estimatedHours,
+      onSubmitTree,
+      handleOpenChange,
+      submitting,
+    ]
+  )
+
+  const parentTotalHours = subtasks.reduce(
+    (sum, s) => sum + normalizeEstimatedHours(Number(s.estimatedHours) || 0.5),
+    0
+  )
+
+  const canSubmit =
+    treeMode && subtasks.length > 0
+      ? parentTitle.trim().length > 0 && subtasks.some((s) => s.title.trim())
+      : title.trim().length > 0
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         overlayClassName="bg-neutral-950/30 backdrop-blur-[3px] duration-300 ease-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
         className={cn(
-          'sm:max-w-[400px] duration-300 ease-out',
+          'sm:max-w-[440px] duration-300 ease-out',
           'data-[state=open]:animate-in data-[state=closed]:animate-out',
           'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
           'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -352,33 +611,235 @@ function AddTodoDialog({
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="todo-title">标题</Label>
-              <Input
-                id="todo-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="输入任务名称"
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="todo-copilot">AI Copilot</Label>
+                <button
+                  type="button"
+                  onClick={() => void openInspect()}
+                  disabled={!lastLogId || inspectLoading}
+                  title="查看本次 LLM 交互日志"
+                  aria-label="查看本次 LLM 交互日志"
+                  className={cn(
+                    'flex size-7 items-center justify-center rounded-md border transition-colors',
+                    lastLogId
+                      ? 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800'
+                      : 'cursor-not-allowed border-neutral-100 text-neutral-300 dark:border-neutral-800 dark:text-neutral-600'
+                  )}
+                >
+                  <Search className="size-3.5" />
+                </button>
+              </div>
+              <Textarea
+                id="todo-copilot"
+                value={copilotText}
+                onChange={(e) => setCopilotText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Tab' && !e.shiftKey && copilotText.trim() && !parsing) {
+                    e.preventDefault()
+                    void runParse()
+                  }
+                }}
+                placeholder="描述任务，如：完成季度汇报 PPT"
+                rows={2}
+                disabled={parsing}
+                className="min-h-[2.5rem] resize-none text-sm"
                 autoFocus
               />
+              <p className="text-xs text-neutral-500">
+                {parsing ? '整理中…' : '按 Tab 由 AI 整理（超 1 小时将自动拆解为子任务）'}
+              </p>
+              {parseError && <p className="text-xs text-red-600">{parseError}</p>}
+              {inspectOpen && (
+                <div className="grid gap-2 rounded-md border border-neutral-200 bg-neutral-50/80 p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900/50">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-neutral-700 dark:text-neutral-200">
+                      LLM 交互日志
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setInspectOpen(false)}
+                      className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                    >
+                      收起
+                    </button>
+                  </div>
+                  {inspectLoading ? (
+                    <p className="text-neutral-500">加载中…</p>
+                  ) : inspectError ? (
+                    <p className="text-red-600">{inspectError}</p>
+                  ) : inspectLog ? (
+                    <div className="grid max-h-64 gap-3 overflow-y-auto">
+                      <div>
+                        <p className="mb-1 font-medium text-neutral-600 dark:text-neutral-400">
+                          模型
+                        </p>
+                        <p className="text-neutral-800 dark:text-neutral-200">{inspectLog.model}</p>
+                      </div>
+                      {inspectLog.messages.map((msg, i) => (
+                        <div key={`${msg.role}-${i}`}>
+                          <p className="mb-1 font-medium capitalize text-neutral-600 dark:text-neutral-400">
+                            {msg.role === 'system' ? 'System Prompt' : msg.role === 'user' ? 'User Prompt' : msg.role}
+                          </p>
+                          <pre className="whitespace-pre-wrap break-words rounded-md border border-neutral-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-neutral-800 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200">
+                            {msg.content}
+                          </pre>
+                        </div>
+                      ))}
+                      <div>
+                        <p className="mb-1 font-medium text-neutral-600 dark:text-neutral-400">
+                          返回
+                        </p>
+                        <pre className="whitespace-pre-wrap break-words rounded-md border border-neutral-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-neutral-800 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200">
+                          {inspectLog.responseText ?? '（无返回内容）'}
+                        </pre>
+                      </div>
+                      {inspectLog.error && (
+                        <div>
+                          <p className="mb-1 font-medium text-red-600">错误</p>
+                          <p className="text-red-600">{inspectLog.error}</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="todo-hours">预计时长（小时）</Label>
-              <Input
-                id="todo-hours"
-                type="number"
-                min={1}
-                step={1}
-                value={estimatedHours}
-                onChange={(e) => setEstimatedHours(e.target.value)}
-              />
-            </div>
+
+            {treeMode ? (
+              <div className="grid gap-3 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+                <div className="grid gap-2">
+                  <Label htmlFor="todo-parent-title">父任务</Label>
+                  <Input
+                    id="todo-parent-title"
+                    value={parentTitle}
+                    onChange={(e) => setParentTitle(e.target.value)}
+                    placeholder="父任务标题"
+                  />
+                  {subtasks.length > 0 && (
+                    <p className="text-xs text-neutral-500">
+                      总预计 {formatEstimatedDuration(parentTotalHours)}（子任务合计）
+                    </p>
+                  )}
+                </div>
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>子任务</Label>
+                    <button
+                      type="button"
+                      onClick={addSubtask}
+                      className="flex items-center gap-1 text-xs font-medium text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+                    >
+                      <Plus className="size-3.5" />
+                      添加子任务
+                    </button>
+                  </div>
+                  {subtasks.length === 0 ? (
+                    <p className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-neutral-400">
+                      暂无子任务，点击上方添加
+                    </p>
+                  ) : (
+                    subtasks.map((sub, index) => (
+                      <div
+                        key={sub.id}
+                        className="grid gap-2 rounded-md border border-dashed p-2"
+                      >
+                        <div className="flex items-start gap-2">
+                          <Input
+                            value={sub.title}
+                            onChange={(e) =>
+                              setSubtasks((prev) =>
+                                prev.map((s, i) =>
+                                  i === index ? { ...s, title: e.target.value } : s
+                                )
+                              )
+                            }
+                            placeholder={`子任务 ${index + 1}`}
+                            className="text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeSubtask(index)}
+                            aria-label="移除子任务"
+                            className="flex size-9 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor={`sub-hours-${sub.id}`} className="shrink-0 text-xs">
+                            时长（小时）
+                          </Label>
+                          <Input
+                            id={`sub-hours-${sub.id}`}
+                            type="number"
+                            min={0.5}
+                            step={0.5}
+                            value={sub.estimatedHours}
+                            onChange={(e) =>
+                              setSubtasks((prev) =>
+                                prev.map((s, i) =>
+                                  i === index ? { ...s, estimatedHours: e.target.value } : s
+                                )
+                              )
+                            }
+                            className="h-8 w-24 text-sm"
+                          />
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={exitTreeMode}
+                  className="text-left text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                >
+                  改为单条任务
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="todo-title">标题</Label>
+                  <Input
+                    id="todo-title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="输入任务名称"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="todo-hours">预计时长（小时）</Label>
+                  <Input
+                    id="todo-hours"
+                    type="number"
+                    min={0.5}
+                    step={0.5}
+                    value={estimatedHours}
+                    onChange={(e) => setEstimatedHours(e.target.value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={enterTreeMode}
+                  className="flex w-fit items-center gap-1 text-xs font-medium text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+                >
+                  <Plus className="size-3.5" />
+                  拆解为子任务
+                </button>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
               取消
             </Button>
-            <Button type="submit" disabled={!title.trim()}>
-              添加
+            <Button type="submit" disabled={!canSubmit || submitting || parsing}>
+              {submitting
+                ? '添加中…'
+                : treeMode && subtasks.some((s) => s.title.trim())
+                  ? '添加全部'
+                  : '添加'}
             </Button>
           </DialogFooter>
         </form>
@@ -411,18 +872,20 @@ function TodoList({
   const startTodo = useTodoStore((s) => s.startTodo)
   const completeTodo = useTodoStore((s) => s.completeTodo)
   const removeTodo = useTodoStore((s) => s.removeTodo)
-  const addTodo = useTodoStore((s) => s.addTodo)
+  const addTodoTree = useTodoStore((s) => s.addTodoTree)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
 
   const dayTabs = useMemo(() => getVisibleWeekDayTabs(weekAnchor), [weekAnchor])
   const activeDayLabel =
     dayTabs.find((t) => t.dayIndex === activeDayIndex)?.label ?? '当日'
 
-  const handleAddTodo = useCallback(
-    (values: { title: string; estimatedHours: number }) => {
-      addTodo({ ...values, dayIndex: activeDayIndex })
-    },
-    [activeDayIndex, addTodo]
+  const handleAddTodoTree = useCallback(
+    (input: {
+      parent?: { title: string }
+      subtasks?: Array<{ title: string; estimatedHours: number }>
+      root?: { title: string; estimatedHours: number }
+    }) => addTodoTree({ ...input, dayIndex: activeDayIndex }),
+    [activeDayIndex, addTodoTree]
   )
 
   const dayTodos = useMemo(
@@ -430,13 +893,31 @@ function TodoList({
     [todos, activeDayIndex]
   )
 
+  const todoTree = useMemo(() => buildTodoTree(dayTodos), [dayTodos])
+
   const sorted = useMemo(() => {
     const order = { active: 0, pending: 1, done: 2 } as const
-    return [...dayTodos].sort((a, b) => order[a.status] - order[b.status])
-  }, [dayTodos])
+    const rootStatus = (item: TodoItem) => {
+      const children = item.subtasks ?? []
+      if (children.length === 0) return item.status
+      if (children.some((c) => c.status === 'active')) return 'active' as const
+      if (children.every((c) => c.status === 'done')) return 'done' as const
+      return 'pending' as const
+    }
+    return [...todoTree].sort((a, b) => order[rootStatus(a)] - order[rootStatus(b)])
+  }, [todoTree])
 
-  const activeCount = dayTodos.filter((t) => t.status === 'active').length
-  const doneCount = dayTodos.filter((t) => t.status === 'done').length
+  const activeCount = dayTodos.filter(
+    (t) => t.status === 'active' && t.parentId != null
+  ).length
+  const doneCount = dayTodos.filter(
+    (t) => t.status === 'done' && t.parentId != null
+  ).length
+  const rootDoneCount = todoTree.filter((t) => {
+    const children = t.subtasks ?? []
+    if (children.length === 0) return t.status === 'done'
+    return children.every((c) => c.status === 'done')
+  }).length
 
   return (
     <>
@@ -444,7 +925,7 @@ function TodoList({
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
         dayLabel={activeDayLabel}
-        onSubmit={handleAddTodo}
+        onSubmitTree={handleAddTodoTree}
       />
       <div
         className={cn(
@@ -467,7 +948,7 @@ function TodoList({
               {activeCount > 0
                 ? `${activeCount} 项进行中`
                 : '拖入活动自动开始，或点击添加新建'}
-              {doneCount > 0 && ` · 已完成 ${doneCount}`}
+              {doneCount > 0 && ` · 已完成 ${rootDoneCount}`}
             </p>
           </div>
           <button
@@ -503,13 +984,13 @@ function TodoList({
         ) : (
           <ul className="flex flex-col gap-2">
             {sorted.map((item) => (
-              <TodoRow
+              <TodoRowGroup
                 key={item.id}
                 item={item}
                 now={now}
-                onStart={() => startTodo(item.id)}
-                onComplete={() => completeTodo(item.id)}
-                onRemove={() => removeTodo(item.id)}
+                onStart={startTodo}
+                onComplete={completeTodo}
+                onRemove={removeTodo}
               />
             ))}
           </ul>
