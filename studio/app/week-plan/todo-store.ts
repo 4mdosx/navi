@@ -11,6 +11,8 @@ import {
   apiDeleteTodo,
   apiMoveTodoToPending,
   apiStartTodo,
+  apiCreateSubtask,
+  apiUpdateTodo,
   apiUpdatePending,
   fetchWeekPlan,
 } from './week-plan-api'
@@ -33,13 +35,16 @@ export type ActivityDragPayload = {
   hour: number
 }
 
-export type TodoStatus = 'active' | 'pending' | 'done'
+export type TodoStatus = WeekPlanTodo['status']
 
 export type TodoItem = {
   id: string
   parentId: string | null
   sortOrder: number
   title: string
+  description: string
+  content: string
+  version: number
   status: TodoStatus
   estimatedHours: number
   hour: number
@@ -56,6 +61,9 @@ function mapTodo(t: WeekPlanTodo): TodoItem {
     parentId: t.parentId,
     sortOrder: t.sortOrder,
     title: t.title,
+    description: t.description,
+    content: t.content,
+    version: t.version,
     status: t.status,
     estimatedHours: t.estimatedHours,
     hour: t.hour,
@@ -131,6 +139,14 @@ type TodoStore = {
   moveTodoBackToPending: (id: string) => Promise<void>
   startTodo: (id: string) => Promise<void>
   completeTodo: (id: string) => Promise<void>
+  updateTodo: (id: string, input: {
+    title?: string
+    description?: string
+    content?: string
+    status?: TodoStatus
+    version: number
+  }) => Promise<void>
+  addSubtask: (parentId: string, input: { title: string; description?: string }) => Promise<void>
   removeTodo: (id: string) => Promise<void>
 }
 
@@ -268,6 +284,35 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
       })
     } catch (error) {
       console.error('Failed to complete todo:', error)
+    }
+  },
+  updateTodo: async (id, input) => {
+    try {
+      const todo = await apiUpdateTodo(id, input)
+      set({ todos: get().todos.map((item) => item.id === id ? mapTodo(todo) : item) })
+    } catch (error) {
+      console.error('Failed to update todo:', error)
+      throw error
+    }
+  },
+  addSubtask: async (parentId, input) => {
+    const { weekStart, todos } = get()
+    const parent = todos.find((item) => item.id === parentId)
+    if (!parent || !weekStart) return
+    try {
+      const todo = await apiCreateSubtask({
+        parentId,
+        title: input.title,
+        description: input.description,
+        placement: 'week_plan',
+        weekStart,
+        dayIndex: parent.dayIndex,
+        estimatedMinutes: 30,
+      })
+      set({ todos: [...get().todos, mapTodo(todo)] })
+    } catch (error) {
+      console.error('Failed to create subtask:', error)
+      throw error
     }
   },
   removeTodo: async (id) => {

@@ -1,4 +1,5 @@
-export type TodoStatus = 'active' | 'pending' | 'done'
+import type { TodoStatus } from './todo'
+export type { TodoStatus } from './todo'
 
 export type WeekPlanPendingActivity = {
   id: string
@@ -14,7 +15,9 @@ export type WeekPlanTodo = {
   parentId: string | null
   sortOrder: number
   title: string
+  description: string
   content: string
+  version: number
   status: TodoStatus
   estimatedHours: number
   hour: number

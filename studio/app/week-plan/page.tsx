@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Check, ChevronLeft, ChevronRight, Circle, Play, Plus, Search, Trash2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Circle, Pencil, Play, Plus, Search, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,6 +27,9 @@ import {
 } from './todo-store'
 import { apiFetchCopilotLog, apiParseTodoCopilot, formatWeekStartClient, type CopilotLlmLog } from './week-plan-api'
 import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
+import type { Todo } from '@/types/todo'
+import { TodoActivityView } from '@/app/dashboard/todo-activity-view'
+import { TodoTimelineCalendar } from './todo-timeline-calendar'
 
 function getSundayOfWeekContaining(date: Date): Date {
   const d = new Date(date)
@@ -190,6 +193,7 @@ function TodoRow({
   onStart,
   onComplete,
   onRemove,
+  onEdit,
 }: {
   item: TodoItem
   now: number
@@ -199,10 +203,12 @@ function TodoRow({
   onStart: () => void
   onComplete: () => void
   onRemove: () => void
+  onEdit: () => void
 }) {
   const setDraggingPayload = useTodoStore((s) => s.setDraggingPayload)
   const isActive = item.status === 'active'
   const isDone = item.status === 'done'
+  const isClosed = isDone || item.status === 'cancelled'
   const elapsed =
     isActive && item.startedAtMs != null ? formatElapsed(now - item.startedAtMs) : null
   const canDrag = !hasChildren
@@ -243,8 +249,8 @@ function TodoRow({
     >
       <button
         type="button"
-        onClick={isDone || hasChildren ? undefined : onComplete}
-        disabled={isDone || hasChildren}
+        onClick={isClosed || hasChildren ? undefined : onComplete}
+        disabled={isClosed || hasChildren}
         aria-label={isDone ? '已完成' : hasChildren ? '父任务' : '标记完成'}
         className={cn(
           'flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors',
@@ -274,6 +280,12 @@ function TodoRow({
               进行中
             </span>
           )}
+          {item.status === 'blocked' && (
+            <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">阻塞</span>
+          )}
+          {item.status === 'cancelled' && (
+            <span className="shrink-0 rounded-full bg-neutral-500/15 px-2 py-0.5 text-[10px] font-medium text-neutral-600 dark:text-neutral-300">已取消</span>
+          )}
           {hasChildren && subtaskProgress && (
             <span className="shrink-0 text-[10px] text-neutral-500">
               {subtaskProgress.done}/{subtaskProgress.total} 完成
@@ -291,7 +303,15 @@ function TodoRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-        {!isDone && !isActive && !hasChildren && (
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label="编辑任务"
+          className="flex size-7 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+        >
+          <Pencil className="size-3.5" />
+        </button>
+        {!isClosed && !isActive && !hasChildren && (
           <button
             type="button"
             onClick={onStart}
@@ -339,6 +359,7 @@ function TodoRowGroup({
   onStart,
   onComplete,
   onRemove,
+  onEdit,
 }: {
   item: TodoItem
   now: number
@@ -346,6 +367,7 @@ function TodoRowGroup({
   onStart: (id: string) => void
   onComplete: (id: string) => void
   onRemove: (id: string) => void
+  onEdit: (item: TodoItem) => void
 }) {
   const children = item.subtasks ?? []
   const hasChildren = children.length > 0
@@ -362,6 +384,7 @@ function TodoRowGroup({
         onStart={() => onStart(item.id)}
         onComplete={() => onComplete(item.id)}
         onRemove={() => onRemove(item.id)}
+        onEdit={() => onEdit(item)}
       />
       {children.map((sub) => (
         <TodoRowGroup
@@ -372,9 +395,120 @@ function TodoRowGroup({
           onStart={onStart}
           onComplete={onComplete}
           onRemove={onRemove}
+          onEdit={onEdit}
         />
       ))}
     </>
+  )
+}
+
+function TodoDetailDialog({
+  item,
+  open,
+  onOpenChange,
+  updateTodo,
+  addSubtask,
+}: {
+  item: TodoItem | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  updateTodo: ReturnType<typeof useTodoStore.getState>['updateTodo']
+  addSubtask: ReturnType<typeof useTodoStore.getState>['addSubtask']
+}) {
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [content, setContent] = useState('')
+  const [status, setStatus] = useState<TodoItem['status']>('pending')
+  const [subtaskTitle, setSubtaskTitle] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!item) return
+    setTitle(item.title)
+    setDescription(item.description)
+    setContent(item.content)
+    setStatus(item.status)
+    setSubtaskTitle('')
+    setError(null)
+  }, [item])
+
+  const save = async () => {
+    if (!item || !title.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      await updateTodo(item.id, {
+        title: title.trim(), description, content, status, version: item.version,
+      })
+      onOpenChange(false)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '保存失败，请重新打开任务后再试')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const createChild = async () => {
+    if (!item || !subtaskTitle.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      await addSubtask(item.id, { title: subtaskTitle.trim() })
+      setSubtaskTitle('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '子任务创建失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>任务详情</DialogTitle>
+          <DialogDescription>任务定义与执行状态都保存到统一 Todo 域。</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="todo-title">标题</Label>
+            <Input id="todo-title" value={title} onChange={(event) => setTitle(event.target.value)} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="todo-description">描述与验收标准</Label>
+            <Textarea id="todo-description" rows={4} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="说明目标、范围和完成标准" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="todo-content">执行状态</Label>
+            <Textarea id="todo-content" rows={8} value={content} onChange={(event) => setContent(event.target.value)} placeholder="记录当前进度、关键发现、下一步和阻塞项" className="font-mono text-xs" />
+            <p className="text-xs text-neutral-500">该内容也可由 Codex 通过 MCP 持续更新。</p>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="todo-status">状态</Label>
+            <select id="todo-status" value={status} onChange={(event) => setStatus(event.target.value as TodoItem['status'])} className="h-10 rounded-md border border-neutral-200 bg-background px-3 text-sm dark:border-neutral-800">
+              <option value="pending">待处理</option>
+              <option value="active">进行中</option>
+              <option value="blocked">阻塞</option>
+              <option value="done">已完成</option>
+              <option value="cancelled">已取消</option>
+            </select>
+          </div>
+          <div className="grid gap-1.5 rounded-lg border border-dashed p-3 dark:border-neutral-800">
+            <Label htmlFor="todo-subtask">添加子任务</Label>
+            <div className="flex gap-2">
+              <Input id="todo-subtask" value={subtaskTitle} onChange={(event) => setSubtaskTitle(event.target.value)} placeholder="输入子任务标题" />
+              <Button type="button" variant="outline" disabled={saving || !subtaskTitle.trim()} onClick={() => void createChild()}>添加</Button>
+            </div>
+          </div>
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+          <Button type="button" disabled={saving || !title.trim()} onClick={() => void save()}>{saving ? '保存中…' : '保存'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -858,6 +992,7 @@ function TodoList({
   onDragOver,
   onDragLeave,
   onDrop,
+  actions,
 }: {
   todos: TodoItem[]
   now: number
@@ -868,12 +1003,11 @@ function TodoList({
   onDragOver: (e: React.DragEvent) => void
   onDragLeave: () => void
   onDrop: (e: React.DragEvent) => void
+  actions: Pick<ReturnType<typeof useTodoStore.getState>, 'startTodo' | 'completeTodo' | 'removeTodo' | 'addTodoTree' | 'updateTodo' | 'addSubtask'>
 }) {
-  const startTodo = useTodoStore((s) => s.startTodo)
-  const completeTodo = useTodoStore((s) => s.completeTodo)
-  const removeTodo = useTodoStore((s) => s.removeTodo)
-  const addTodoTree = useTodoStore((s) => s.addTodoTree)
+  const { startTodo, completeTodo, removeTodo, addTodoTree, updateTodo, addSubtask } = actions
   const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [editingTodo, setEditingTodo] = useState<TodoItem | null>(null)
 
   const dayTabs = useMemo(() => getVisibleWeekDayTabs(weekAnchor), [weekAnchor])
   const activeDayLabel =
@@ -896,7 +1030,7 @@ function TodoList({
   const todoTree = useMemo(() => buildTodoTree(dayTodos), [dayTodos])
 
   const sorted = useMemo(() => {
-    const order = { active: 0, pending: 1, done: 2 } as const
+    const order = { active: 0, blocked: 1, pending: 2, done: 3, cancelled: 4 } as const
     const rootStatus = (item: TodoItem) => {
       const children = item.subtasks ?? []
       if (children.length === 0) return item.status
@@ -927,6 +1061,13 @@ function TodoList({
         dayLabel={activeDayLabel}
         onSubmitTree={handleAddTodoTree}
       />
+      <TodoDetailDialog
+        item={editingTodo}
+        open={editingTodo != null}
+        onOpenChange={(open) => { if (!open) setEditingTodo(null) }}
+        updateTodo={updateTodo}
+        addSubtask={addSubtask}
+      />
       <div
         className={cn(
           'flex min-h-0 flex-1 flex-col rounded-lg border transition-colors',
@@ -940,17 +1081,10 @@ function TodoList({
       >
       <div className="flex shrink-0 flex-col gap-2 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              每日待办
-            </h2>
-            <p className="mt-0.5 text-xs text-neutral-500">
-              {activeCount > 0
-                ? `${activeCount} 项进行中`
-                : '拖入活动自动开始，或点击添加新建'}
-              {doneCount > 0 && ` · 已完成 ${rootDoneCount}`}
-            </p>
-          </div>
+          <p className="text-xs text-neutral-500">
+            {activeCount > 0 ? `${activeCount} 项进行中` : `${dayTodos.length} 项任务`}
+            {doneCount > 0 && ` · 已完成 ${rootDoneCount}`}
+          </p>
           <button
             type="button"
             onClick={() => setAddDialogOpen(true)}
@@ -991,6 +1125,7 @@ function TodoList({
                 onStart={startTodo}
                 onComplete={completeTodo}
                 onRemove={removeTodo}
+                onEdit={setEditingTodo}
               />
             ))}
           </ul>
@@ -1007,15 +1142,19 @@ function PendingPanel({
   onDragOver,
   onDragLeave,
   onDrop,
+  embedded = false,
+  addPending,
+  removePending,
 }: {
   pending: { id: string; title: string; day: number; hour: number }[]
   isDragOver: boolean
   onDragOver: (e: React.DragEvent) => void
   onDragLeave: () => void
   onDrop: (e: React.DragEvent) => void
+  embedded?: boolean
+  addPending: ReturnType<typeof useTodoStore.getState>['addPending']
+  removePending: ReturnType<typeof useTodoStore.getState>['removePending']
 }) {
-  const addPending = useTodoStore((s) => s.addPending)
-  const removePending = useTodoStore((s) => s.removePending)
   const [addOpen, setAddOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [hours, setHours] = useState('1')
@@ -1035,9 +1174,10 @@ function PendingPanel({
   }
 
   return (
-    <aside
+    <div
       className={cn(
-        'flex min-h-0 min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors',
+        'flex min-h-0 min-w-0 flex-col gap-2 transition-colors',
+        !embedded && 'rounded-lg border p-3',
         isDragOver
           ? 'border-dashed border-amber-400 bg-amber-50/80 dark:border-amber-600 dark:bg-amber-950/20'
           : 'border-neutral-200 bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-900/40'
@@ -1116,6 +1256,75 @@ function PendingPanel({
           </p>
         )}
       </div>
+    </div>
+  )
+}
+
+const TODO_FILTER_LABELS: Record<Todo['status'], string> = {
+  active: '进行中', pending: '待开始', blocked: '阻塞', done: '已完成', cancelled: '已取消',
+}
+
+function TodoWorkspacePanel({
+  pending,
+  todos,
+  dragProps,
+  actions,
+}: {
+  pending: { id: string; title: string; day: number; hour: number }[]
+  todos: Todo[]
+  dragProps: {
+    isDragOver: boolean
+    onDragOver: (event: React.DragEvent) => void
+    onDragLeave: () => void
+    onDrop: (event: React.DragEvent) => void
+  }
+  actions: Pick<ReturnType<typeof useTodoStore.getState>, 'addPending' | 'removePending'>
+}) {
+  const [mode, setMode] = useState<'pending' | 'all'>('pending')
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState<Todo['status'] | 'all'>('all')
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return todos.filter((todo) => {
+      if (status !== 'all' && todo.status !== status) return false
+      return !needle || `${todo.title}\n${todo.description}\n${todo.content}`.toLowerCase().includes(needle)
+    })
+  }, [todos, query, status])
+
+  return (
+    <aside className="flex min-h-0 min-w-0 flex-col rounded-lg border bg-card p-3" aria-label="Todo 待安排与筛选">
+      <div className="mb-3 grid grid-cols-2 rounded-md bg-muted p-1" role="tablist" aria-label="Todo 工作区视图">
+        <button type="button" role="tab" aria-selected={mode === 'pending'} onClick={() => setMode('pending')} className={cn('rounded px-2 py-1.5 text-xs font-medium', mode === 'pending' && 'bg-background shadow-sm')}>
+          待安排 · {pending.length}
+        </button>
+        <button type="button" role="tab" aria-selected={mode === 'all'} onClick={() => setMode('all')} className={cn('rounded px-2 py-1.5 text-xs font-medium', mode === 'all' && 'bg-background shadow-sm')}>
+          全部与筛选 · {todos.length}
+        </button>
+      </div>
+      {mode === 'pending' ? (
+        <PendingPanel pending={pending} embedded {...dragProps} {...actions} />
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、描述或进度" className="h-8 text-xs" />
+          <select value={status} onChange={(event) => setStatus(event.target.value as Todo['status'] | 'all')} className="h-8 rounded-md border bg-background px-2 text-xs">
+            <option value="all">全部状态</option>
+            {Object.entries(TODO_FILTER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <p className="text-[11px] text-muted-foreground">{filtered.length} / {todos.length} 项</p>
+          <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+            {filtered.map((todo) => (
+              <li key={todo.id} className="rounded-md border px-2.5 py-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <span className={cn('font-medium', todo.status === 'cancelled' && 'line-through')}>{todo.title}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{TODO_FILTER_LABELS[todo.status]}</span>
+                </div>
+                {todo.description && <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{todo.description}</p>}
+              </li>
+            ))}
+            {filtered.length === 0 && <li className="rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">没有匹配的 Todo</li>}
+          </ul>
+        </div>
+      )}
     </aside>
   )
 }
@@ -1126,6 +1335,7 @@ export default function WeekPlanPage() {
   const [activeDayIndex, setActiveDayIndex] = useState(() => new Date().getDay())
   const [isTodoDragOver, setIsTodoDragOver] = useState(false)
   const [isPendingDragOver, setIsPendingDragOver] = useState(false)
+  const [allTodos, setAllTodos] = useState<Todo[]>([])
 
   const weekStart = formatWeekStartClient(weekAnchor)
   const isLoading = useTodoStore((s) => s.isLoading)
@@ -1151,10 +1361,34 @@ export default function WeekPlanPage() {
 
   const pending = useTodoStore((s) => s.pending)
   const todos = useTodoStore((s) => s.todos)
+  const todoVersionKey = todos.map((todo) => `${todo.id}:${todo.version}`).join('|')
+  const pendingVersionKey = pending.map((todo) => `${todo.id}:${todo.title}:${todo.day}`).join('|')
   const draggingPayload = useTodoStore((s) => s.draggingPayload)
   const setDraggingPayload = useTodoStore((s) => s.setDraggingPayload)
   const addTodoFromDrop = useTodoStore((s) => s.addTodoFromDrop)
   const moveTodoBackToPending = useTodoStore((s) => s.moveTodoBackToPending)
+  const startTodo = useTodoStore((s) => s.startTodo)
+  const completeTodo = useTodoStore((s) => s.completeTodo)
+  const removeTodo = useTodoStore((s) => s.removeTodo)
+  const addTodoTree = useTodoStore((s) => s.addTodoTree)
+  const updateTodo = useTodoStore((s) => s.updateTodo)
+  const addSubtask = useTodoStore((s) => s.addSubtask)
+  const addPending = useTodoStore((s) => s.addPending)
+  const removePending = useTodoStore((s) => s.removePending)
+
+  const refreshAllTodos = useCallback(() => {
+    fetch('/api/todos', { credentials: 'include' })
+      .then(async (response) => {
+        const result = await response.json()
+        if (!response.ok || !result.success) throw new Error(result.error || 'Todo 加载失败')
+        setAllTodos(result.data)
+      })
+      .catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    refreshAllTodos()
+  }, [todoVersionKey, pendingVersionKey, refreshAllTodos])
 
   const yearWeekLabel = useMemo(() => getYearWeekLabel(weekAnchor), [weekAnchor])
 
@@ -1174,6 +1408,13 @@ export default function WeekPlanPage() {
     setWeekAnchor(new Date())
     setActiveDayIndex(new Date().getDay())
   }
+
+  const selectWeek = useCallback((selectedWeekStart: string) => {
+    const [year, month, day] = selectedWeekStart.split('-').map(Number)
+    setWeekAnchor(new Date(year, month - 1, day))
+    const currentWeekStart = formatWeekStartClient(new Date())
+    setActiveDayIndex(selectedWeekStart === currentWeekStart ? new Date().getDay() : 0)
+  }, [])
 
   const isCurrentWeek =
     formatWeekStartClient(new Date()) === weekStart
@@ -1235,15 +1476,12 @@ export default function WeekPlanPage() {
   )
 
   return (
-    <div className="mx-auto h-[calc(100vh-6rem)] max-w-7xl p-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <Link
-          href="/dashboard"
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          ← 返回 Navi
-        </Link>
-      </div>
+    <div className="mx-auto max-w-[90rem] p-4 sm:p-6">
+      <header className="mb-4 flex items-center gap-3">
+        <Link href="/dashboard" className="text-xs text-muted-foreground hover:text-foreground">← 返回 Navi</Link>
+        <span className="h-3 w-px bg-border" />
+        <h1 className="text-sm font-semibold">Todo 中心</h1>
+      </header>
 
       {loadError && (
         <div className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
@@ -1258,10 +1496,21 @@ export default function WeekPlanPage() {
         </div>
       )}
 
-      <div className="grid h-full gap-6 md:grid-cols-[2fr_1fr]">
-        <div className="flex min-h-0 min-w-0 flex-col">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+      <div className="grid min-h-[calc(100vh-9rem)] gap-4 xl:grid-cols-[19rem_minmax(0,1fr)]">
+        <aside className="order-2 grid content-start gap-3 sm:grid-cols-2 xl:order-1 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:grid-cols-1 xl:overflow-y-auto" aria-label="Todo 时间与周视图">
+          <TodoTimelineCalendar todos={allTodos} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
+          <TodoActivityView todos={allTodos} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
+        </aside>
+
+        <section className="order-1 flex min-h-0 min-w-0 flex-col xl:order-2" aria-label="周计划与 Todo 工作区">
+          <div className="grid min-h-[38rem] flex-1 gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(17rem,0.8fr)]">
+          <div className="flex min-h-0 min-w-0 flex-col">
+          <div className="mb-3 flex min-h-16 flex-wrap items-start justify-between gap-2 border-b pb-3">
+            <div>
+              <h2 className="text-sm font-semibold">周计划与执行</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">安排到具体日期，然后进入执行</p>
+            </div>
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={goPrevWeek}
@@ -1270,7 +1519,7 @@ export default function WeekPlanPage() {
               >
                 <ChevronLeft className="size-4" />
               </button>
-              <h1 className="text-lg font-semibold">{yearWeekLabel}</h1>
+              <span className="min-w-24 text-center text-sm font-medium">{yearWeekLabel}</span>
               <button
                 type="button"
                 onClick={goNextWeek}
@@ -1303,16 +1552,23 @@ export default function WeekPlanPage() {
             onDragOver={handleTodoDragOver}
             onDragLeave={handleTodoDragLeave}
             onDrop={handleTodoDrop}
+            actions={{ startTodo, completeTodo, removeTodo, addTodoTree, updateTodo, addSubtask }}
           />
         </div>
-        <PendingPanel
-          pending={pending}
-          isDragOver={isPendingDragOver}
-          onDragOver={handlePendingDragOver}
-          onDragLeave={handlePendingDragLeave}
-          onDrop={handlePendingDrop}
-        />
+          <TodoWorkspacePanel
+            pending={pending}
+            todos={allTodos}
+            dragProps={{
+              isDragOver: isPendingDragOver,
+              onDragOver: handlePendingDragOver,
+              onDragLeave: handlePendingDragLeave,
+              onDrop: handlePendingDrop,
+            }}
+            actions={{ addPending, removePending }}
+          />
+          </div>
+        </section>
       </div>
-    </div>
+      </div>
   )
 }

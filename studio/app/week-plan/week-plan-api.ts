@@ -5,6 +5,7 @@ import type {
   ParseTodoCopilotResult,
   CreateTodoTreeResult,
 } from '@/types/week-plan'
+import type { Todo } from '@/types/todo'
 import { formatWeekStart } from '@/backstage/week-plan/week-utils'
 
 export const formatWeekStartClient = formatWeekStart
@@ -32,6 +33,27 @@ async function parseJson<T>(res: Response): Promise<T> {
     throw err
   }
   return data as T
+}
+
+function todoDomainToWeekPlan(todo: Todo): WeekPlanTodo {
+  return {
+    id: todo.id,
+    parentId: todo.parentId,
+    sortOrder: todo.sortOrder,
+    title: todo.title,
+    description: todo.description,
+    content: todo.content,
+    version: todo.version,
+    status: todo.status,
+    estimatedHours: todo.estimatedMinutes / 60,
+    hour: todo.hour,
+    dayIndex: todo.dayIndex ?? 0,
+    weekStart: todo.weekStart ?? '',
+    startedAtMs: todo.startedAt ? Date.parse(todo.startedAt) : undefined,
+    completedAtMs: todo.completedAt ? Date.parse(todo.completedAt) : undefined,
+    createdAt: todo.createdAt,
+    updatedAt: todo.updatedAt,
+  }
 }
 
 export async function fetchWeekPlan(weekStart: string): Promise<WeekPlanData> {
@@ -204,4 +226,43 @@ export async function apiCreateTodoTree(input: {
     body: JSON.stringify({ action: 'createTree', ...input }),
   })
   return parseJson(res)
+}
+
+export async function apiUpdateTodo(
+  id: string,
+  input: {
+    title?: string
+    description?: string
+    content?: string
+    status?: WeekPlanTodo['status']
+    version: number
+  }
+): Promise<WeekPlanTodo> {
+  const res = await fetch(`/api/todos/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const data = await parseJson<{ data: Todo }>(res)
+  return todoDomainToWeekPlan(data.data)
+}
+
+export async function apiCreateSubtask(input: {
+  parentId: string
+  title: string
+  description?: string
+  placement: 'week_plan'
+  weekStart: string
+  dayIndex: number
+  estimatedMinutes: number
+}): Promise<WeekPlanTodo> {
+  const res = await fetch('/api/todos', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const data = await parseJson<{ data: Todo }>(res)
+  return todoDomainToWeekPlan(data.data)
 }

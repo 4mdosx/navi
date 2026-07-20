@@ -5,21 +5,6 @@ export interface Database {
     value: string
     updatedAt: Date
   }
-  projects: {
-    id: string
-    title: string
-    progress: number
-    goal: number
-    createdAt: string
-    updatedAt: string
-  }
-  project_todos: {
-    projectId: string
-    weekItemIndex: number
-    id: string
-    content: string
-    comment: string
-  }
   agent_sessions: {
     id: string
     status: string
@@ -45,27 +30,21 @@ export interface Database {
     createdAt: string
     updatedAt: string
   }
-  week_plan_pending: {
-    id: string
-    title: string
-    estimatedHours: number
-    hour: number
-    sortOrder: number
-    createdAt: string
-    updatedAt: string
-  }
-  week_plan_todos: {
+  todos: {
     id: string
     parentId: string | null
     sortOrder: number
+    depth: number
     title: string
+    description: string
     content: string
     status: string
-    estimatedHours: number
     estimatedMinutes: number
+    placement: string
     hour: number
-    dayIndex: number
-    weekStart: string
+    dayIndex: number | null
+    weekStart: string | null
+    version: number
     startedAt: string | null
     completedAt: string | null
     createdAt: string

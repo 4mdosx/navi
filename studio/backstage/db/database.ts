@@ -3,7 +3,7 @@ import { Kysely, SqliteDialect } from 'kysely'
 import Database from 'better-sqlite3'
 import path from 'path'
 import type { Database as DatabaseType } from './types'
-import { migrateWeekPlanSchema } from './week-plan-migrate'
+import { migrateTodoDomain } from './todo-migrate'
 import { migrateLlmInteractionLogs } from './llm-log-migrate'
 
 // 数据库文件路径
@@ -52,7 +52,7 @@ function ensureSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_inbox_items_status
     ON inbox_items(status)
   `)
-  migrateWeekPlanSchema(sqlite)
+  migrateTodoDomain(sqlite)
   migrateLlmInteractionLogs(sqlite)
   schemaEnsured = true
 }

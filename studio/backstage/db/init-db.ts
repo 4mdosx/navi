@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * 数据库初始化脚本：创建 settings / projects / project_todos / week_plan_* / agent_sessions / agent_presets。
- * `agent_sessions` 每次 init 会先 **DROP** 再建表（仅清空 Agent 会话；projects 等不受影响）。
+ * 数据库初始化脚本：创建 settings / todos / agent_sessions / agent_presets。
+ * `agent_sessions` 每次 init 会先 **DROP** 再建表（仅清空 Agent 会话）。
  *
  * 用法:
  *   npm run init-db
@@ -11,6 +11,7 @@
 
 import Database from 'better-sqlite3'
 import path from 'path'
+import { migrateTodoDomain } from './todo-migrate'
 
 const dbPath = process.env.DB_FILE_NAME
   ? process.env.DB_FILE_NAME.replace(/^file:/, '')
@@ -30,28 +31,8 @@ function initializeDatabase(): void {
       )
     `)
 
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        progress INTEGER NOT NULL DEFAULT 0,
-        goal INTEGER NOT NULL DEFAULT 0,
-        createdAt TEXT NOT NULL,
-        updatedAt TEXT NOT NULL
-      )
-    `)
-
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS project_todos (
-        projectId TEXT NOT NULL,
-        weekItemIndex INTEGER NOT NULL,
-        id TEXT NOT NULL,
-        content TEXT NOT NULL DEFAULT '',
-        comment TEXT NOT NULL DEFAULT '[]',
-        PRIMARY KEY (projectId, weekItemIndex),
-        FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
+    // Import legacy week-plan task tables before creating the canonical views.
+    migrateTodoDomain(sqlite)
 
     // agent_sessions：与 Cursor SDK 对齐；升级时整表丢弃重建（仅影响 Agent 会话数据）
     sqlite.exec(`DROP TABLE IF EXISTS agent_sessions`)
@@ -100,30 +81,21 @@ function initializeDatabase(): void {
     `)
 
     sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS week_plan_pending (
+      CREATE TABLE IF NOT EXISTS todos (
         id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        estimatedHours INTEGER NOT NULL DEFAULT 1,
-        hour INTEGER NOT NULL DEFAULT 1,
+        parentId TEXT REFERENCES todos(id) ON DELETE CASCADE,
         sortOrder INTEGER NOT NULL DEFAULT 0,
-        createdAt TEXT NOT NULL,
-        updatedAt TEXT NOT NULL
-      )
-    `)
-
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS week_plan_todos (
-        id TEXT PRIMARY KEY,
-        parentId TEXT,
-        sortOrder INTEGER NOT NULL DEFAULT 0,
+        depth INTEGER NOT NULL DEFAULT 0,
         title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
         content TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'pending',
-        estimatedHours INTEGER NOT NULL DEFAULT 1,
         estimatedMinutes INTEGER NOT NULL DEFAULT 60,
+        placement TEXT NOT NULL DEFAULT 'backlog',
         hour INTEGER NOT NULL DEFAULT 1,
-        dayIndex INTEGER NOT NULL,
-        weekStart TEXT NOT NULL,
+        dayIndex INTEGER,
+        weekStart TEXT,
+        version INTEGER NOT NULL DEFAULT 1,
         startedAt TEXT,
         completedAt TEXT,
         createdAt TEXT NOT NULL,
@@ -132,13 +104,13 @@ function initializeDatabase(): void {
     `)
 
     sqlite.exec(`
-      CREATE INDEX IF NOT EXISTS idx_week_plan_todos_weekStart
-      ON week_plan_todos(weekStart)
+      CREATE INDEX IF NOT EXISTS idx_todos_placement_week
+      ON todos(placement, weekStart, dayIndex)
     `)
 
     sqlite.exec(`
-      CREATE INDEX IF NOT EXISTS idx_week_plan_todos_parentId
-      ON week_plan_todos(parentId)
+      CREATE INDEX IF NOT EXISTS idx_todos_parent_sort
+      ON todos(parentId, sortOrder)
     `)
 
     sqlite.exec(`
@@ -195,26 +167,6 @@ function initializeDatabase(): void {
       CREATE INDEX IF NOT EXISTS idx_llm_interaction_logs_feature_createdAt
       ON llm_interaction_logs(feature, createdAt DESC)
     `)
-
-    const pendingCount = sqlite
-      .prepare('SELECT COUNT(*) AS count FROM week_plan_pending')
-      .get() as { count: number }
-    if (pendingCount.count === 0) {
-      const seedNow = new Date().toISOString()
-      const seedPending = [
-        { id: '1', title: '高等数学（习题）', estimatedHours: 3, hour: 1, sortOrder: 0 },
-        { id: '2', title: '实验课', estimatedHours: 1, hour: 2, sortOrder: 1 },
-        { id: '3', title: '小组项目', estimatedHours: 2, hour: 3, sortOrder: 2 },
-        { id: '4', title: '讲座', estimatedHours: 1, hour: 1, sortOrder: 3 },
-      ]
-      const insertPending = sqlite.prepare(`
-        INSERT INTO week_plan_pending (id, title, estimatedHours, hour, sortOrder, createdAt, updatedAt)
-        VALUES (@id, @title, @estimatedHours, @hour, @sortOrder, @createdAt, @updatedAt)
-      `)
-      for (const row of seedPending) {
-        insertPending.run({ ...row, createdAt: seedNow, updatedAt: seedNow })
-      }
-    }
 
     const now = new Date().toISOString()
     const defaultPromptPrefix =
