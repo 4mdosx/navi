@@ -1,28 +1,20 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Activity, Clock3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Todo } from '@/types/todo'
-
-const DAY_MS = 86_400_000
-const WEEKS = 12
+import {
+  buildWeekList,
+  expandWeeksToDays,
+  formatWeekDateKey,
+  startOfWeek,
+  truncateWeeksForActivity,
+  WEEK_MS,
+} from '@/app/week-plan/todo-timeline-weeks'
 
 function dayKey(value: string | number | Date) {
-  const date = new Date(value)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
-function mondayOf(date: Date) {
-  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  const day = result.getDay()
-  result.setDate(result.getDate() - (day === 0 ? 6 : day - 1))
-  return result
-}
-
-function sundayOf(date: Date) {
-  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  result.setDate(result.getDate() - result.getDay())
-  return dayKey(result)
+  return formatWeekDateKey(new Date(value))
 }
 
 function minutesSpent(todo: Todo) {
@@ -49,26 +41,29 @@ export function TodoActivityView({
   selectedWeekStart?: string
   onWeekSelect?: (weekStart: string) => void
 }) {
-  const currentMonday = mondayOf(new Date())
-  const firstMonday = new Date(currentMonday.getTime() - (WEEKS - 1) * 7 * DAY_MS)
-  const days = Array.from({ length: WEEKS * 7 }, (_, index) =>
-    new Date(firstMonday.getTime() + index * DAY_MS)
+  const currentWeek = startOfWeek(new Date())
+  const visibleWeeks = useMemo(
+    () => truncateWeeksForActivity(buildWeekList(new Date())),
+    [currentWeek.getTime()]
   )
-  const activity = new Map<string, Set<string>>()
+  const days = useMemo(() => expandWeeksToDays(visibleWeeks), [visibleWeeks])
+  const visibleDayKeys = useMemo(() => new Set(days.map(dayKey)), [days])
 
+  const activity = new Map<string, Set<string>>()
   for (const todo of todos) {
     const timestamps = [todo.createdAt, todo.updatedAt, todo.startedAt, todo.completedAt].filter(Boolean) as string[]
     for (const timestamp of timestamps) {
       const key = dayKey(timestamp)
+      if (!visibleDayKeys.has(key)) continue
       const ids = activity.get(key) ?? new Set<string>()
       ids.add(todo.id)
       activity.set(key, ids)
     }
   }
 
-  const weeklyMinutes = Array.from({ length: WEEKS }, (_, weekIndex) => {
-    const start = firstMonday.getTime() + weekIndex * 7 * DAY_MS
-    const end = start + 7 * DAY_MS
+  const weeklyMinutes = visibleWeeks.map((weekStart) => {
+    const start = weekStart.getTime()
+    const end = start + WEEK_MS
     return todos.reduce((total, todo) => {
       const timestamp = Date.parse(todo.completedAt ?? todo.updatedAt)
       return timestamp >= start && timestamp < end ? total + minutesSpent(todo) : total
@@ -85,24 +80,32 @@ export function TodoActivityView({
             <Activity className="size-4 text-emerald-600" />
             <h2 className="text-sm font-semibold">Todo 周视图</h2>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">最近 {WEEKS} 周 · {totalActivity} 次 Todo 活动</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">最近 {visibleWeeks.length} 周 · {totalActivity} 次 Todo 活动</p>
         </div>
       </div>
 
-      <div className={cn(compact ? 'overflow-hidden' : 'overflow-x-auto pb-1')}>
-        <div className={cn('grid grid-flow-col grid-rows-7', compact ? 'w-full gap-0.5' : 'min-w-[42rem] gap-1')} aria-label="Todo 活动热度图">
+      <div className={cn('py-2', compact ? 'overflow-hidden' : 'overflow-x-auto pb-1')}>
+        <div
+          className={cn(
+            'mx-auto grid w-fit max-w-full grid-flow-col grid-rows-7',
+            compact ? 'gap-px' : 'min-w-[42rem] gap-0.5'
+          )}
+          aria-label="Todo 活动热度图"
+        >
           {days.map((date) => {
-            const count = activity.get(dayKey(date))?.size ?? 0
+            const dateKey = dayKey(date)
+            const weekKey = formatWeekDateKey(startOfWeek(date))
+            const count = activity.get(dateKey)?.size ?? 0
             return (
               <button
                 type="button"
-                key={dayKey(date)}
-                title={`${dayKey(date)} · ${count} 次活动`}
-                onClick={() => onWeekSelect?.(sundayOf(date))}
+                key={dateKey}
+                title={`${dateKey} · ${count} 次活动`}
+                onClick={() => onWeekSelect?.(weekKey)}
                 className={cn(
-                  'aspect-square rounded-[3px] border border-black/5 dark:border-white/5',
-                  compact ? 'min-h-1.5' : 'min-h-3',
-                  selectedWeekStart === sundayOf(date) && 'ring-1 ring-primary ring-offset-1',
+                  'rounded-[2px] border border-black/5 dark:border-white/5',
+                  compact ? 'size-2' : 'size-3',
+                  selectedWeekStart === weekKey && 'ring-1 ring-primary ring-offset-1',
                   count === 0 && 'bg-muted',
                   count === 1 && 'bg-emerald-200 dark:bg-emerald-900',
                   count === 2 && 'bg-emerald-400 dark:bg-emerald-700',
@@ -121,20 +124,24 @@ export function TodoActivityView({
           <span>本周 {formatMinutes(weeklyMinutes.at(-1) ?? 0)}</span>
         </div>
         <div className={cn('flex items-end gap-1', compact ? 'h-12' : 'h-20')} aria-label="Todo 每周时间统计">
-          {weeklyMinutes.map((minutes, index) => (
-            <button
-              type="button"
-              key={index}
-              className="flex h-full flex-1 items-end"
-              title={`第 ${index + 1} 周 · ${formatMinutes(minutes)}`}
-              onClick={() => onWeekSelect?.(sundayOf(new Date(firstMonday.getTime() + index * 7 * DAY_MS)))}
-            >
-              <div
-                className="w-full rounded-sm bg-blue-500/70 transition-colors hover:bg-blue-500"
-                style={{ height: minutes === 0 ? 2 : `${Math.max(8, (minutes / maxMinutes) * 100)}%` }}
-              />
-            </button>
-          ))}
+          {weeklyMinutes.map((minutes, index) => {
+            const weekStart = visibleWeeks[index]
+            if (!weekStart) return null
+            return (
+              <button
+                type="button"
+                key={weekStart.getTime()}
+                className="flex h-full flex-1 items-end"
+                title={`第 ${index + 1} 周 · ${formatMinutes(minutes)}`}
+                onClick={() => onWeekSelect?.(formatWeekDateKey(weekStart))}
+              >
+                <div
+                  className="w-full rounded-sm bg-blue-500/70 transition-colors hover:bg-blue-500"
+                  style={{ height: minutes === 0 ? 2 : `${Math.max(8, (minutes / maxMinutes) * 100)}%` }}
+                />
+              </button>
+            )
+          })}
         </div>
       </div>
     </section>
