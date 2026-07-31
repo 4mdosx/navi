@@ -34,12 +34,14 @@ function result(data: unknown) {
 
 const status = z.enum(['active', 'pending', 'blocked', 'done', 'cancelled'])
 const placement = z.enum(['backlog', 'week_plan'])
+const kind = z.enum(['direction', 'outcome', 'action', 'habit'])
 
 server.registerTool('todo_list', {
   description: 'List and search Navi todos.',
   inputSchema: {
     placement: placement.optional(), weekStart: z.string().optional(),
-    parentId: z.string().nullable().optional(), status: status.optional(), query: z.string().optional(),
+    parentId: z.string().nullable().optional(), status: status.optional(), kind: kind.optional(),
+    reviewBefore: z.string().optional(), query: z.string().optional(),
   },
   annotations: { readOnlyHint: true, openWorldHint: false },
 }, async (args) => result(await gateway('todo.list', args)))
@@ -56,6 +58,8 @@ server.registerTool('todo_create', {
     title: z.string().min(1), description: z.string().optional(), content: z.string().optional(),
     parentId: z.string().nullable().optional(), status: status.optional(),
     estimatedMinutes: z.number().int().positive().optional(), placement: placement.optional(),
+    kind: kind.optional(), reviewAt: z.string().nullable().optional(),
+    activationCondition: z.string().optional(),
     weekStart: z.string().nullable().optional(), dayIndex: z.number().int().min(0).max(6).nullable().optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -67,6 +71,8 @@ server.registerTool('todo_update', {
     id: z.string().min(1), version: z.number().int().positive(), title: z.string().min(1).optional(),
     description: z.string().optional(), status: status.optional(), estimatedMinutes: z.number().int().positive().optional(),
     placement: placement.optional(), weekStart: z.string().nullable().optional(),
+    kind: kind.optional(), reviewAt: z.string().nullable().optional(),
+    activationCondition: z.string().optional(),
     dayIndex: z.number().int().min(0).max(6).nullable().optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -95,6 +101,31 @@ server.registerTool('todo_delete', {
   inputSchema: { id: z.string().min(1), cascade: z.boolean().default(false), confirm: z.literal(true) },
   annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
 }, async (args) => result(await gateway('todo.delete', args)))
+
+server.registerTool('long_term_plan_list', {
+  description: 'List long-term recurring plans and materialize their occurrences for the reference week.',
+  inputSchema: { referenceDate: z.string().optional() },
+  annotations: { readOnlyHint: true, openWorldHint: false },
+}, async (args) => result(await gateway('long_term_plan.list', args)))
+
+server.registerTool('long_term_plan_create', {
+  description: 'Create a long-term recurring plan. The plan is the rule; occurrences are generated execution nodes.',
+  inputSchema: {
+    sourceTodoId: z.string().nullable(), title: z.string().min(1), description: z.string(),
+    status: z.enum(['active', 'paused', 'done']).default('active'),
+    cadence: z.enum(['daily', 'weekly']), scheduleMode: z.enum(['fixed_days', 'weekly_quota']),
+    intervalWeeks: z.number().int().positive().default(1), targetCount: z.number().int().positive(),
+    stretchCount: z.number().int().positive().nullable(), preferredDays: z.array(z.number().int().min(0).max(6)),
+    estimatedMinutes: z.number().int().positive(), startDate: z.string(), endDate: z.string().nullable(),
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+}, async (args) => result(await gateway('long_term_plan.create', args)))
+
+server.registerTool('long_term_plan_update_occurrence', {
+  description: 'Update one generated long-term-plan occurrence.',
+  inputSchema: { id: z.string(), status: z.enum(['pending', 'active', 'done', 'skipped', 'missed']), note: z.string().optional() },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+}, async (args) => result(await gateway('long_term_plan.update_occurrence', args)))
 
 async function main() {
   await server.connect(new StdioServerTransport())

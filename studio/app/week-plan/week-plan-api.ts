@@ -6,6 +6,7 @@ import type {
   CreateTodoTreeResult,
 } from '@/types/week-plan'
 import type { Todo } from '@/types/todo'
+import type { TodoKind } from '@/types/todo'
 import { formatWeekStart } from '@/backstage/week-plan/week-utils'
 
 export const formatWeekStartClient = formatWeekStart
@@ -235,6 +236,9 @@ export async function apiUpdateTodo(
     description?: string
     content?: string
     status?: WeekPlanTodo['status']
+    kind?: TodoKind
+    reviewAt?: string | null
+    activationCondition?: string
     version: number
   }
 ): Promise<WeekPlanTodo> {

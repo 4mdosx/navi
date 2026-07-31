@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { WeekPlanPendingActivity, WeekPlanTodo } from '@/types/week-plan'
+import type { TodoKind } from '@/types/todo'
 import { normalizeEstimatedHours } from '@/backstage/week-plan/week-plan-hours'
 import {
   apiAddTodoFromPending,
@@ -144,6 +145,9 @@ type TodoStore = {
     description?: string
     content?: string
     status?: TodoStatus
+    kind?: TodoKind
+    reviewAt?: string | null
+    activationCondition?: string
     version: number
   }) => Promise<void>
   addSubtask: (parentId: string, input: { title: string; description?: string }) => Promise<void>

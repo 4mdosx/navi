@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { Activity, Clock3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Todo } from '@/types/todo'
+import type { PlanCheckIn } from '@/types/long-term-plan'
 import {
   buildWeekList,
   expandWeeksToDays,
@@ -32,11 +33,13 @@ function formatMinutes(minutes: number) {
 
 export function TodoActivityView({
   todos,
+  checkIns = [],
   compact = false,
   selectedWeekStart,
   onWeekSelect,
 }: {
   todos: Todo[]
+  checkIns?: PlanCheckIn[]
   compact?: boolean
   selectedWeekStart?: string
   onWeekSelect?: (weekStart: string) => void
@@ -60,14 +63,26 @@ export function TodoActivityView({
       activity.set(key, ids)
     }
   }
+  for (const checkIn of checkIns) {
+    const key = dayKey(checkIn.checkedAt)
+    if (!visibleDayKeys.has(key)) continue
+    const ids = activity.get(key) ?? new Set<string>()
+    ids.add(checkIn.id)
+    activity.set(key, ids)
+  }
 
   const weeklyMinutes = visibleWeeks.map((weekStart) => {
     const start = weekStart.getTime()
     const end = start + WEEK_MS
-    return todos.reduce((total, todo) => {
+    const todoMinutes = todos.reduce((total, todo) => {
       const timestamp = Date.parse(todo.completedAt ?? todo.updatedAt)
       return timestamp >= start && timestamp < end ? total + minutesSpent(todo) : total
     }, 0)
+    const checkInMinutes = checkIns.filter((checkIn) => {
+      const timestamp = Date.parse(checkIn.checkedAt)
+      return timestamp >= start && timestamp < end
+    }).length * 60
+    return todoMinutes + checkInMinutes
   })
   const maxMinutes = Math.max(...weeklyMinutes, 1)
   const totalActivity = [...activity.values()].reduce((sum, ids) => sum + ids.size, 0)
@@ -84,11 +99,11 @@ export function TodoActivityView({
         </div>
       </div>
 
-      <div className={cn('py-2', compact ? 'overflow-hidden' : 'overflow-x-auto pb-1')}>
+      <div className={cn(compact ? 'overflow-hidden' : 'overflow-x-auto pb-1')}>
         <div
           className={cn(
-            'mx-auto grid w-fit max-w-full grid-flow-col grid-rows-7',
-            compact ? 'gap-px' : 'min-w-[42rem] gap-0.5'
+            'grid grid-flow-col grid-rows-7',
+            compact ? 'w-full gap-0.5' : 'min-w-[42rem] gap-1'
           )}
           aria-label="Todo 活动热度图"
         >
@@ -103,8 +118,8 @@ export function TodoActivityView({
                 title={`${dateKey} · ${count} 次活动`}
                 onClick={() => onWeekSelect?.(weekKey)}
                 className={cn(
-                  'rounded-[2px] border border-black/5 dark:border-white/5',
-                  compact ? 'size-2' : 'size-3',
+                  'aspect-square rounded-[3px] border border-black/5 dark:border-white/5',
+                  compact ? 'min-h-1.5' : 'min-h-3',
                   selectedWeekStart === weekKey && 'ring-1 ring-primary ring-offset-1',
                   count === 0 && 'bg-muted',
                   count === 1 && 'bg-emerald-200 dark:bg-emerald-900',

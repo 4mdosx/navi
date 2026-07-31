@@ -5,6 +5,8 @@ import path from 'path'
 import type { Database as DatabaseType } from './types'
 import { migrateTodoDomain } from './todo-migrate'
 import { migrateLlmInteractionLogs } from './llm-log-migrate'
+import { migrateLongTermPlanDomain } from './long-term-plan-migrate'
+import { migrateExecutionDomain } from './execution-migrate'
 
 // 数据库文件路径
 const dbPath = process.env.DB_FILE_NAME
@@ -53,6 +55,8 @@ function ensureSchema(): void {
     ON inbox_items(status)
   `)
   migrateTodoDomain(sqlite)
+  migrateLongTermPlanDomain(sqlite)
+  migrateExecutionDomain(sqlite)
   migrateLlmInteractionLogs(sqlite)
   schemaEnsured = true
 }

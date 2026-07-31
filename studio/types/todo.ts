@@ -1,5 +1,6 @@
 export type TodoStatus = 'active' | 'pending' | 'blocked' | 'done' | 'cancelled'
 export type TodoPlacement = 'backlog' | 'week_plan'
+export type TodoKind = 'direction' | 'outcome' | 'action' | 'habit'
 
 export type Todo = {
   id: string
@@ -12,6 +13,9 @@ export type Todo = {
   status: TodoStatus
   estimatedMinutes: number
   placement: TodoPlacement
+  kind: TodoKind
+  reviewAt: string | null
+  activationCondition: string
   hour: number
   dayIndex: number | null
   weekStart: string | null
@@ -30,6 +34,9 @@ export type CreateTodoInput = {
   status?: TodoStatus
   estimatedMinutes?: number
   placement?: TodoPlacement
+  kind?: TodoKind
+  reviewAt?: string | null
+  activationCondition?: string
   hour?: number
   dayIndex?: number | null
   weekStart?: string | null

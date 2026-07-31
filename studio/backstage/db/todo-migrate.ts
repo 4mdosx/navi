@@ -3,6 +3,13 @@ import type Database from 'better-sqlite3'
 type TableRow = { name: string }
 type ColumnRow = { name: string }
 
+function columnNames(sqlite: Database.Database, table: string): Set<string> {
+  return new Set(
+    (sqlite.prepare(`PRAGMA table_info(${table})`).all() as ColumnRow[])
+      .map((column) => column.name)
+  )
+}
+
 function tableExists(sqlite: Database.Database, name: string): boolean {
   return Boolean(
     sqlite
@@ -29,6 +36,9 @@ export function migrateTodoDomain(sqlite: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'pending',
       estimatedMinutes INTEGER NOT NULL DEFAULT 60,
       placement TEXT NOT NULL DEFAULT 'backlog',
+      kind TEXT NOT NULL DEFAULT 'action',
+      reviewAt TEXT,
+      activationCondition TEXT NOT NULL DEFAULT '',
       hour INTEGER NOT NULL DEFAULT 1,
       dayIndex INTEGER,
       weekStart TEXT,
@@ -42,6 +52,12 @@ export function migrateTodoDomain(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_todos_placement_week ON todos(placement, weekStart, dayIndex);
     CREATE INDEX IF NOT EXISTS idx_todos_status_updated ON todos(status, updatedAt DESC);
   `)
+
+  const todoColumns = columnNames(sqlite, 'todos')
+  if (!todoColumns.has('kind')) sqlite.exec("ALTER TABLE todos ADD COLUMN kind TEXT NOT NULL DEFAULT 'action'")
+  if (!todoColumns.has('reviewAt')) sqlite.exec('ALTER TABLE todos ADD COLUMN reviewAt TEXT')
+  if (!todoColumns.has('activationCondition')) sqlite.exec("ALTER TABLE todos ADD COLUMN activationCondition TEXT NOT NULL DEFAULT ''")
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_todos_kind_review ON todos(kind, reviewAt)')
 
   sqlite.transaction(() => {
     if (tableExists(sqlite, 'week_plan_todos')) {

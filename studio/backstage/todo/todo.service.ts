@@ -1,15 +1,17 @@
 import 'server-only'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '@/backstage/db/database'
-import type { CreateTodoInput, Todo, TodoPlacement, TodoStatus, UpdateTodoInput } from '@/types/todo'
+import type { CreateTodoInput, Todo, TodoKind, TodoPlacement, TodoStatus, UpdateTodoInput } from '@/types/todo'
 
 const STATUSES = new Set<TodoStatus>(['active', 'pending', 'blocked', 'done', 'cancelled'])
 const PLACEMENTS = new Set<TodoPlacement>(['backlog', 'week_plan'])
+const KINDS = new Set<TodoKind>(['direction', 'outcome', 'action', 'habit'])
 
 function mapTodo(row: {
   id: string; parentId: string | null; sortOrder: number; depth: number
   title: string; description: string; content: string; status: string
-  estimatedMinutes: number; placement: string; hour: number
+  estimatedMinutes: number; placement: string; kind: string; reviewAt: string | null
+  activationCondition: string; hour: number
   dayIndex: number | null; weekStart: string | null; version: number
   startedAt: string | null; completedAt: string | null
   createdAt: string; updatedAt: string
@@ -19,6 +21,7 @@ function mapTodo(row: {
     status: STATUSES.has(row.status as TodoStatus) ? row.status as TodoStatus : 'pending',
     placement: PLACEMENTS.has(row.placement as TodoPlacement)
       ? row.placement as TodoPlacement : 'backlog',
+    kind: KINDS.has(row.kind as TodoKind) ? row.kind as TodoKind : 'action',
   }
 }
 
@@ -49,6 +52,9 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
     status,
     estimatedMinutes: Math.max(15, Math.round(input.estimatedMinutes ?? 60)),
     placement: input.placement ?? 'backlog',
+    kind: input.kind && KINDS.has(input.kind) ? input.kind : (parent ? 'action' : 'outcome'),
+    reviewAt: input.reviewAt ?? null,
+    activationCondition: input.activationCondition?.trim() ?? '',
     hour: Math.max(1, Math.round(input.hour ?? 1)),
     dayIndex: input.dayIndex ?? null,
     weekStart: input.weekStart ?? null,
@@ -70,7 +76,7 @@ export async function getTodo(id: string): Promise<Todo> {
 
 export async function listTodos(input: {
   placement?: TodoPlacement; weekStart?: string; parentId?: string | null
-  status?: TodoStatus; query?: string
+  status?: TodoStatus; kind?: TodoKind; reviewBefore?: string; query?: string
 } = {}): Promise<Todo[]> {
   const db = await getDatabase()
   let query = db.selectFrom('todos').selectAll()
@@ -79,6 +85,8 @@ export async function listTodos(input: {
   if (input.parentId !== undefined) query = input.parentId === null
     ? query.where('parentId', 'is', null) : query.where('parentId', '=', input.parentId)
   if (input.status) query = query.where('status', '=', input.status)
+  if (input.kind) query = query.where('kind', '=', input.kind)
+  if (input.reviewBefore) query = query.where('reviewAt', '<=', input.reviewBefore)
   if (input.query) query = query.where((eb) => eb.or([
     eb('title', 'like', `%${input.query}%`),
     eb('description', 'like', `%${input.query}%`),
@@ -102,6 +110,12 @@ export async function updateTodo(id: string, input: UpdateTodoInput): Promise<To
   if (input.content != null) updates.content = input.content
   if (input.estimatedMinutes != null) updates.estimatedMinutes = Math.max(15, Math.round(input.estimatedMinutes))
   if (input.placement != null) updates.placement = input.placement
+  if (input.kind != null) {
+    if (!KINDS.has(input.kind)) throw new Error(`Invalid Todo kind: ${input.kind}`)
+    updates.kind = input.kind
+  }
+  if (input.reviewAt !== undefined) updates.reviewAt = input.reviewAt
+  if (input.activationCondition !== undefined) updates.activationCondition = input.activationCondition.trim()
   if (input.hour != null) updates.hour = Math.max(1, Math.round(input.hour))
   if (input.dayIndex !== undefined) updates.dayIndex = input.dayIndex
   if (input.weekStart !== undefined) updates.weekStart = input.weekStart
@@ -144,10 +158,28 @@ export async function moveTodo(id: string, input: {
     }
   }
   const db = await getDatabase()
-  await db.updateTable('todos').set({
-    parentId: input.parentId, depth, sortOrder: input.sortOrder ?? 0,
-    version: current.version + 1, updatedAt: new Date().toISOString(),
-  }).where('id', '=', id).execute()
+  const descendants: Array<{ id: string; depth: number }> = []
+  const collectDescendants = async (parentId: string, parentDepth: number) => {
+    const children = await db.selectFrom('todos').select('id').where('parentId', '=', parentId).execute()
+    for (const child of children) {
+      const childDepth = parentDepth + 1
+      if (childDepth > 4) throw new Error('Todo maximum depth exceeded')
+      descendants.push({ id: child.id, depth: childDepth })
+      await collectDescendants(child.id, childDepth)
+    }
+  }
+  await collectDescendants(id, depth)
+  const now = new Date().toISOString()
+  await db.transaction().execute(async (trx) => {
+    await trx.updateTable('todos').set({
+      parentId: input.parentId, depth, sortOrder: input.sortOrder ?? 0,
+      version: current.version + 1, updatedAt: now,
+    }).where('id', '=', id).execute()
+    for (const descendant of descendants) {
+      await trx.updateTable('todos').set({ depth: descendant.depth, updatedAt: now })
+        .where('id', '=', descendant.id).execute()
+    }
+  })
   return getTodo(id)
 }
 

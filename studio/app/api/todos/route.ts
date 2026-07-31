@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createTodo, listTodos } from '@/backstage/todo/todo.service'
-import type { TodoPlacement, TodoStatus } from '@/types/todo'
+import type { TodoKind, TodoPlacement, TodoStatus } from '@/types/todo'
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,6 +10,8 @@ export async function GET(request: NextRequest) {
       placement: (params.get('placement') || undefined) as TodoPlacement | undefined,
       weekStart: params.get('weekStart') || undefined,
       status: (params.get('status') || undefined) as TodoStatus | undefined,
+      kind: (params.get('kind') || undefined) as TodoKind | undefined,
+      reviewBefore: params.get('reviewBefore') || undefined,
       query: params.get('query') || undefined,
       parentId: parent === 'root' ? null : parent ?? undefined,
     })
