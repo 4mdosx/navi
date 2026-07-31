@@ -29,6 +29,7 @@ import { apiFetchCopilotLog, apiParseTodoCopilot, formatWeekStartClient, type Co
 import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
 import type { Todo, TodoKind } from '@/types/todo'
 import type { LongTermPlanWithProgress, PlanOccurrence } from '@/types/long-term-plan'
+import type { ExecutionActivity } from '@/types/execution'
 import { TodoActivityView } from '@/app/dashboard/todo-activity-view'
 import { TodoTimelineCalendar } from './todo-timeline-calendar'
 import { TodayExecutionCenter } from './today-execution-center'
@@ -1959,6 +1960,7 @@ export default function WeekPlanPage() {
   const [isPendingDragOver, setIsPendingDragOver] = useState(false)
   const [allTodos, setAllTodos] = useState<Todo[]>([])
   const [longTermPlans, setLongTermPlans] = useState<LongTermPlanWithProgress[]>([])
+  const [executionActivity, setExecutionActivity] = useState<ExecutionActivity[]>([])
   const [overviewOpen, setOverviewOpen] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(false)
 
@@ -2016,6 +2018,18 @@ export default function WeekPlanPage() {
       .catch(() => undefined)
   }, [])
 
+  const refreshExecutionActivity = useCallback(() => {
+    const from = new Date()
+    from.setDate(from.getDate() - 16 * 7)
+    fetch(`/api/execution/activity?from=${encodeURIComponent(from.toISOString())}`, { credentials: 'include' })
+      .then(async (response) => {
+        const result = await response.json()
+        if (!response.ok || !result.success) throw new Error(result.error || '执行记录加载失败')
+        setExecutionActivity(result.data)
+      })
+      .catch(() => undefined)
+  }, [])
+
   const completeOccurrence = useCallback((occurrence: PlanOccurrence) => {
     void fetch(`/api/long-term-plans/occurrences/${encodeURIComponent(occurrence.id)}`, {
       method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'done' }),
@@ -2045,6 +2059,7 @@ export default function WeekPlanPage() {
   }, [todoVersionKey, pendingVersionKey, refreshAllTodos])
 
   useEffect(() => { refreshLongTermPlans() }, [refreshLongTermPlans])
+  useEffect(() => { refreshExecutionActivity() }, [refreshExecutionActivity])
 
   useEffect(() => {
     const toggleInsights = (event: KeyboardEvent) => {
@@ -2177,7 +2192,7 @@ export default function WeekPlanPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto xl:overflow-hidden">
         <section className="flex min-h-0 min-w-0 flex-col xl:h-full xl:overflow-hidden" aria-label="今日执行与任务地图">
-          <TodayExecutionCenter todos={allTodos} plans={longTermPlans} onPlanCheckIn={checkInPlan} onPlanTargetChange={changePlanTarget} onTodosChanged={refreshAllTodos} />
+          <TodayExecutionCenter todos={allTodos} plans={longTermPlans} onPlanCheckIn={checkInPlan} onPlanTargetChange={changePlanTarget} onTodosChanged={refreshAllTodos} onExecutionChanged={refreshExecutionActivity} />
         </section>
       </div>
       <div className={cn('fixed inset-0 z-40 transition-[visibility] duration-300', !insightsOpen && 'pointer-events-none invisible')} aria-hidden={!insightsOpen}>
@@ -2189,7 +2204,7 @@ export default function WeekPlanPage() {
           </div>
           <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto">
             <TodoTimelineCalendar todos={allTodos} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
-            <TodoActivityView todos={allTodos} checkIns={longTermPlans.flatMap((plan) => plan.checkIns)} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
+            <TodoActivityView todos={allTodos} checkIns={longTermPlans.flatMap((plan) => plan.checkIns)} executionSessions={executionActivity} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
           </div>
         </aside>
       </div>
