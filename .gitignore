@@ -35,7 +35,6 @@ yarn.lock
 # typescript
 *.tsbuildinfo
 
-
 # data
 db-data.json
 local.db
@@ -44,4 +43,6 @@ local.remote.db
 
 # config
 .env
-scripts/obsidian/config.js
+
+# PM2
+logs/

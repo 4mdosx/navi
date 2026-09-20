@@ -1,7 +1,7 @@
 [mcp_servers.navi_todo]
 command = "npm"
 args = ["run", "mcp:todo"]
-cwd = "/Users/token/pre-research/navi/studio"
+cwd = "/Users/token/pre-research/navi"
 startup_timeout_sec = 15
 tool_timeout_sec = 60
 default_tools_approval_mode = "writes"
