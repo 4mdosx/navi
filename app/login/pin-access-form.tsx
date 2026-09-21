@@ -79,8 +79,8 @@ export default function PinAccessForm({
               </CardTitle>
               <CardDescription className="text-center">
                 {mode === 'setup'
-                  ? `首次使用请设置 ${PIN_LENGTH} 位 PIN，之后用它快速解锁`
-                  : `输入 ${PIN_LENGTH} 位 PIN 以继续`}
+                  ? `首次使用请设置 ${PIN_LENGTH} 位 PIN。解锁后当天有效，次日需再输入。`
+                  : `输入 ${PIN_LENGTH} 位 PIN。解锁后当天有效。`}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

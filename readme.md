@@ -23,7 +23,7 @@ npm run dev
 
 访问 http://localhost:5500
 
-`.env` 至少配置 `SESSION_SECRET`。首次打开会设置 4 位 PIN，之后用 PIN 解锁。可在设置页更新，或运行 `npm run clear-pin` 清除后重新设置。
+`.env` 至少配置 `SESSION_SECRET`。首次打开会设置 4 位 PIN，解锁后当天有效，次日需再输入。可在设置页更新 PIN，或运行 `npm run clear-pin` 清除后重新设置。
 
 ## MCP
 

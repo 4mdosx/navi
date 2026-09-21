@@ -11,6 +11,8 @@ interface PinInputProps {
   length?: number
   autoFocus?: boolean
   disabled?: boolean
+  compact?: boolean
+  className?: string
   onChange?: (code: string) => void
   onComplete?: (code: string) => void
 }
@@ -20,6 +22,8 @@ export default function PinInput({
   length = PIN_LENGTH,
   autoFocus = true,
   disabled = false,
+  compact = false,
+  className,
   onChange,
   onComplete,
 }: PinInputProps) {
@@ -86,7 +90,7 @@ export default function PinInput({
   }, [activeInput, autoFocus, disabled])
 
   return (
-    <div className="flex justify-center space-x-2">
+    <div className={cn('flex justify-center space-x-2', compact && 'justify-start space-x-1.5', className)}>
       {code.map((digit, index) => (
         <Input
           key={index}
@@ -106,6 +110,7 @@ export default function PinInput({
           onPaste={index === 0 ? handlePaste : undefined}
           className={cn(
             'h-14 w-12 text-center text-xl font-semibold',
+            compact && 'h-10 w-9 text-base font-medium',
             activeInput === index && 'border-primary'
           )}
           autoFocus={autoFocus && index === 0}
