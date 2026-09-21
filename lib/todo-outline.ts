@@ -2,7 +2,6 @@ import { shiftWeekStart, formatWeekStart, formatDateKey } from '@/backstage/week
 import {
   hasTimeLink,
   isCarryTodoStatus,
-  isNoteKind,
   todoTimeLinks,
   type TimeGrain,
   type Todo,
@@ -153,7 +152,7 @@ export function selectWeekOutline(todos: Todo[], weekStart: string): Todo[] {
   const visible = new Set<string>()
 
   for (const todo of list) {
-    if (todo.kind === 'note') continue
+    if (todo.kind === 'note' || todo.kind === 'rest') continue
     const createdKey = localDateKey(todo.createdAt)
     if (createdKey && createdKey >= weekEnd) continue
 
@@ -182,7 +181,7 @@ export function filterOutlineByStatuses(todos: Todo[], statuses: ReadonlySet<Tod
   const byId = new Map(list.map((todo) => [todo.id, todo]))
   const visible = new Set<string>()
   for (const todo of list) {
-    if (todo.kind === 'note') continue
+    if (todo.kind === 'note' || todo.kind === 'rest') continue
     if (statuses.has(todo.status)) visible.add(todo.id)
   }
   withAncestors(list, visible, byId)
@@ -194,6 +193,7 @@ export function selectLinkedOutline(todos: Todo[], grain: TimeGrain, date?: stri
   const byId = new Map(list.map((todo) => [todo.id, todo]))
   const visible = new Set<string>()
   for (const todo of list) {
+    if (todo.kind === 'rest') continue
     if (todo.status === 'cancelled') continue
     if (hasTimeLink(todo, grain, date)) visible.add(todo.id)
   }
@@ -264,8 +264,8 @@ export function buildOutlineTree(todos: Todo[]): OutlineTreeNode[] {
 }
 
 export function outlineRole(todo: Pick<Todo, 'kind'>): 'task' | 'note' {
-  if (isNoteKind(todo.kind)) return 'note'
-  return 'task'
+  if (todo.kind === 'action') return 'task'
+  return 'note'
 }
 
 export function outlineTaskChildren(node: OutlineTreeNode): OutlineTreeNode[] {

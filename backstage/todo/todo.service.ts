@@ -108,7 +108,7 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
   const noteType = kind === 'note' && input.noteType && NOTE_TYPES.has(input.noteType) ? input.noteType : 'user'
   const parentTodo = input.parentId ? await getTodo(input.parentId) : null
   const time = normalizeTimeInput(input)
-  if (parentTodo && kind !== 'note') {
+  if (parentTodo && kind !== 'note' && kind !== 'rest') {
     for (const link of parentTodo.timeLinks ?? []) {
       if (!time.some((item) => item.grain === link.grain && item.date === link.date)) {
         time.push({ grain: link.grain, date: link.date })
@@ -143,6 +143,20 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
   }
   if (status === 'active' && kind !== 'note') await startTodoTimeSpan(id)
   return getTodo(id)
+}
+
+export async function findRestTodo(): Promise<Todo | null> {
+  const db = await getDatabase()
+  const row = await db.selectFrom('todos').selectAll().where('kind', '=', 'rest').orderBy('createdAt').executeTakeFirst()
+  if (!row) return null
+  const [todo] = await withTimeLinks([row])
+  return todo
+}
+
+export async function ensureRestTodo(): Promise<Todo> {
+  const existing = await findRestTodo()
+  if (existing) return existing
+  return createTodo({ title: '休息', kind: 'rest', status: 'pending' })
 }
 
 export async function getTodo(id: string): Promise<Todo> {
@@ -220,7 +234,7 @@ export async function updateTodo(id: string, input: UpdateTodoInput): Promise<To
     if (nextStatus === 'active') await startTodoTimeSpan(id)
     else await stopTodoTimeSpan(id)
   }
-  if (statusChanged && current.kind !== 'note' && current.depth < MAX_DEPTH) {
+  if (statusChanged && current.kind !== 'note' && current.kind !== 'rest' && current.depth < MAX_DEPTH) {
     await createTodo({
       title: `状态变更：${TODO_STATUS_LABEL[current.status]} → ${TODO_STATUS_LABEL[nextStatus!]}`,
       parentId: id,

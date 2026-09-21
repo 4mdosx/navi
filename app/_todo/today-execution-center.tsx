@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { isEditableNote, isNoteKind, isStatusChangeNote, TODO_STATUS_LABEL, type Todo, type TodoKind, type TodoStatus, type TodoTimeSpan } from '@/types/todo'
+import { isEditableNote, isNoteKind, isRestKind, isStatusChangeNote, TODO_STATUS_LABEL, type Todo, type TodoKind, type TodoStatus, type TodoTimeSpan } from '@/types/todo'
 import type { TodayExecution } from '@/types/execution'
-import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
+import { formatDateKey, shiftWeekStart } from '@/backstage/week-plan/week-utils'
 import { noteChildrenOf } from '@/lib/todo-outline'
 import { formatWeekStartClient } from './week-plan-api'
 import { WeekOutline } from './week-outline'
@@ -16,6 +16,10 @@ import { EstimatedMinutesControl, KindPicker, StatusGlyph, StatusPicker, STATUS_
 import { TimeProgressBackdrop } from './time-progress-backdrop'
 import { WorkZone } from './work-zone'
 import { WORKSPACE_DRAG_TYPE, hasWorkspaceDrag } from './todo-drag'
+import { DayTimelinePanel } from './day-timeline-panel'
+import { formatDuration, totalSpanMs } from './todo-time'
+import { sessionLimitMs } from '@/lib/todo-session'
+import { ensureNotificationPermission, notifySessionEnded } from './session-notify'
 
 type ViewId = 'week' | 'today'
 type Detail = { title: string; description: string; plannedMinutes: number; meta?: string; todoId?: string }
@@ -61,7 +65,10 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
   const [selected, setSelected] = useState<Detail | null>(null)
   const [reordering, setReordering] = useState(false)
   const [spans, setSpans] = useState<TodoTimeSpan[]>([])
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const [selectedSpans, setSelectedSpans] = useState<TodoTimeSpan[]>([])
   const [now, setNow] = useState(() => Date.now())
+  const endingSpanIds = useRef(new Set<string>())
   const load = useCallback(() => fetch('/api/execution/today').then((r) => r.json()).then((r) => setData(r.data)), [])
   const spanRange = useMemo(() => {
     const start = new Date(`${weekStart}T00:00:00`)
@@ -119,24 +126,50 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
     onTodosChanged()
     onExecutionChanged()
   }
-  const mutateWorkspace = async (todoId: string, action: 'enter' | 'leave') => {
+  const mutateWorkspace = useCallback(async (action: 'enter' | 'leave' | 'rest', todoId?: string) => {
+    if (action === 'enter' || action === 'rest') void ensureNotificationPermission()
     const query = new URLSearchParams(spanRange)
     const response = await fetch(`/api/todo-time-spans?${query}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, todoId }),
+      body: JSON.stringify(action === 'rest' ? { action } : { action, todoId }),
     })
     const result = await response.json()
-    if (!response.ok || !result.success) throw new Error(result.error || (action === 'enter' ? '进入工作区失败' : '移出工作区失败'))
+    if (!response.ok || !result.success) {
+      const failed = action === 'rest' ? '开始休息失败' : action === 'enter' ? '进入工作区失败' : '移出工作区失败'
+      throw new Error(result.error || failed)
+    }
     if (Array.isArray(result.data?.spans)) setSpans(result.data.spans)
     else void loadSpans()
     onTodosChanged()
     onExecutionChanged()
-  }
-  const enterWorkspace = (todoId: string) => { void mutateWorkspace(todoId, 'enter') }
-  const leaveWorkspace = (todoId: string) => { void mutateWorkspace(todoId, 'leave') }
+  }, [spanRange, loadSpans, onTodosChanged, onExecutionChanged])
+  const enterWorkspace = useCallback((todoId: string) => { void mutateWorkspace('enter', todoId) }, [mutateWorkspace])
+  const leaveWorkspace = useCallback((todoId: string) => { void mutateWorkspace('leave', todoId) }, [mutateWorkspace])
+  const startRest = useCallback(() => { void mutateWorkspace('rest') }, [mutateWorkspace])
   const todoById = useMemo(() => new Map(todos.map((todo) => [todo.id, todo])), [todos])
+  useEffect(() => {
+    const timers: number[] = []
+    const open = spans.filter((span) => span.endedAt == null)
+    for (const span of open) {
+      const todo = todoById.get(span.todoId)
+      if (!todo || isNoteKind(todo.kind)) continue
+      const remaining = Date.parse(span.startedAt) + sessionLimitMs(todo.kind) - Date.now()
+      const endSession = () => {
+        if (endingSpanIds.current.has(span.id)) return
+        endingSpanIds.current.add(span.id)
+        void mutateWorkspace('leave', todo.id)
+          .then(() => notifySessionEnded(todo))
+          .finally(() => { endingSpanIds.current.delete(span.id) })
+      }
+      if (remaining <= 0) endSession()
+      else timers.push(window.setTimeout(endSession, remaining))
+    }
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer)
+    }
+  }, [spans, todoById, mutateWorkspace])
   const childrenByParentId = useMemo(() => {
     const grouped = new Map<string, Todo[]>()
     for (const todo of todos) {
@@ -148,7 +181,13 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
   }, [todos])
   const parentLabel = (todo: Todo) => todo.parentId ? todoById.get(todo.parentId)?.title : null
   const selectTodo = (todo: Todo) => {
+    if (isRestKind(todo.kind)) {
+      setSelected(null)
+      setSelectedDay(formatDateKey(new Date()))
+      return
+    }
     const parent = parentLabel(todo)
+    setSelectedDay(null)
     setSelected({
       title: todo.title,
       description: todo.description,
@@ -157,10 +196,28 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
       todoId: todo.id,
     })
   }
+  const selectDay = (dateKey: string) => {
+    setSelected(null)
+    setSelectedDay(dateKey)
+  }
   const selectedTodo = selected?.todoId ? todoById.get(selected.todoId) : null
   const selectedParent = selectedTodo?.parentId ? todoById.get(selectedTodo.parentId) : null
   const selectedChildren = selectedTodo ? childrenByParentId.get(selectedTodo.id) ?? [] : []
   const selectedNotes = selectedTodo ? noteChildrenOf(todos, selectedTodo.id) : []
+  useEffect(() => {
+    setSelectedSpans([])
+    if (!selected?.todoId) return
+    let cancelled = false
+    fetch(`/api/todo-time-spans?todoId=${encodeURIComponent(selected.todoId)}`, { credentials: 'include' })
+      .then((response) => response.json())
+      .then((result) => {
+        if (cancelled || !result.success) return
+        setSelectedSpans(Array.isArray(result.data) ? result.data : [])
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [selected?.todoId, spans])
+  const actualMs = selectedSpans.length > 0 ? totalSpanMs(selectedSpans, now) : null
   const addDerived = async () => {
     if (!selectedTodo || !derivedTitle.trim()) return
     const response = await fetch('/api/todos', {
@@ -257,8 +314,8 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
   }
   return <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
     <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card">
-      <header className="relative flex shrink-0 items-center justify-between gap-3 overflow-hidden border-b px-3 py-2.5" aria-label="今天与本周时间进度">
-        <TimeProgressBackdrop weekStart={weekStart} spans={spans} now={now} />
+      <header className="relative flex shrink-0 items-center justify-between gap-3 overflow-hidden border-b px-3 pt-2.5 pb-3.5" aria-label="今天与本周时间进度">
+        <TimeProgressBackdrop weekStart={weekStart} spans={spans} todos={todos} now={now} selectedDate={selectedDay} onSelectDay={selectDay} />
         <WeekSwitcher weekStart={weekStart} onChange={setWeekStart} />
         <div className="relative z-10 flex items-center gap-2">
           <div className="rounded-md bg-muted p-1">
@@ -291,6 +348,7 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
         now={now}
         onEnter={enterWorkspace}
         onLeave={leaveWorkspace}
+        onRest={startRest}
         onSelect={selectTodo}
       />
       {view === 'week' ? (
@@ -316,14 +374,17 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
       )}
     </section>
     <aside className="overflow-y-auto rounded-lg border bg-card p-3">
-      <h2 className="text-sm font-semibold">任务详情</h2>
-      {selected ? (
+      <h2 className="text-sm font-semibold">{selectedDay ? '这一天' : '任务详情'}</h2>
+      {selectedDay ? (
+        <DayTimelinePanel dateKey={selectedDay} todos={todos} spans={spans} now={now} onSelectTodo={selectTodo} />
+      ) : selected ? (
         <TaskDetailPanel
           selected={selected}
           selectedTodo={selectedTodo}
           selectedParent={selectedParent}
           selectedChildren={selectedChildren}
           selectedNotes={selectedNotes}
+          actualMs={actualMs}
           derivedTitle={derivedTitle}
           noteDraft={noteDraft}
           editingNoteId={editingNoteId}
@@ -344,7 +405,7 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
           onPatchTodo={patchTodo}
         />
       ) : (
-        <p className="mt-3 text-xs text-muted-foreground">选择任务后在这里查看详情。</p>
+        <p className="mt-3 text-xs text-muted-foreground">选择任务，或点时间条查看这一天。</p>
       )}
     </aside>
   </div>
@@ -365,6 +426,7 @@ function TaskDetailPanel({
   selectedParent,
   selectedChildren,
   selectedNotes,
+  actualMs,
   derivedTitle,
   noteDraft,
   editingNoteId,
@@ -389,6 +451,7 @@ function TaskDetailPanel({
   selectedParent: Todo | null | undefined
   selectedChildren: Todo[]
   selectedNotes: Todo[]
+  actualMs: number | null
   derivedTitle: string
   noteDraft: string
   editingNoteId: string | null
@@ -447,11 +510,16 @@ function TaskDetailPanel({
       {selected.meta && <p className="mt-2 text-[10px] text-muted-foreground">{selected.meta}</p>}
       <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{selected.description || '暂无描述'}</p>
       {selectedTodo && (
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <EstimatedMinutesControl
             minutes={selectedTodo.estimatedMinutes}
             onChange={(estimatedMinutes) => void onPatchTodo(selectedTodo, { estimatedMinutes })}
           />
+          {actualMs != null && (
+            <p className="text-xs text-muted-foreground">
+              实际 <span className="font-medium tabular-nums text-foreground">{formatDuration(actualMs)}</span>
+            </p>
+          )}
         </div>
       )}
 

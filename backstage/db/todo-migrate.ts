@@ -51,7 +51,7 @@ export function migrateTodoDomain(sqlite: Database.Database): void {
   for (const column of ['hour', 'weekStart', 'dayIndex', 'reviewAt', 'activationCondition', 'placement']) {
     dropColumnIfExists(sqlite, 'todos', column)
   }
-  sqlite.exec("UPDATE todos SET kind = 'action' WHERE kind NOT IN ('action', 'note')")
+  sqlite.exec("UPDATE todos SET kind = 'action' WHERE kind NOT IN ('action', 'note', 'rest')")
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS todo_time_links (

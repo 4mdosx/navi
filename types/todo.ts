@@ -1,5 +1,5 @@
 export type TodoStatus = 'active' | 'pending' | 'blocked' | 'done' | 'cancelled'
-export type TodoKind = 'action' | 'note'
+export type TodoKind = 'action' | 'note' | 'rest'
 export type TodoNoteType = 'user' | 'status_change'
 export type TimeGrain = 'day' | 'week' | 'horizon'
 
@@ -11,10 +11,12 @@ export const TODO_STATUS_LABEL: Record<TodoStatus, string> = {
   done: '完成',
   cancelled: '放弃',
 }
-export const TODO_KINDS: TodoKind[] = ['action', 'note']
+export const TODO_KINDS: TodoKind[] = ['action', 'note', 'rest']
+export const USER_TODO_KINDS: TodoKind[] = ['action', 'note']
 export const TODO_KIND_LABEL: Record<TodoKind, string> = {
   action: '任务',
   note: '备注',
+  rest: '休息',
 }
 export const NOTE_TYPES: TodoNoteType[] = ['user', 'status_change']
 export const TIME_GRAINS: TimeGrain[] = ['day', 'week', 'horizon']
@@ -72,6 +74,10 @@ export function isScheduledTodo(todo?: Pick<Todo, 'timeLinks'> | null): boolean 
 
 export function isNoteKind(kind: TodoKind): boolean {
   return kind === 'note'
+}
+
+export function isRestKind(kind: TodoKind): boolean {
+  return kind === 'rest'
 }
 
 export function isOpenTodoStatus(status: TodoStatus): boolean {

@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   TODO_KIND_LABEL,
-  TODO_KINDS,
   TODO_STATUS_LABEL,
   TODO_STATUSES,
+  USER_TODO_KINDS,
   type TodoKind,
   type TodoStatus,
 } from '@/types/todo'
@@ -242,7 +242,7 @@ export function KindPicker({
   onChange: (kind: TodoKind) => void
 }) {
   const { open, setOpen, rootRef } = useMenuOpen()
-  const options = TODO_KINDS
+  const options = USER_TODO_KINDS
 
   return (
     <div ref={rootRef} className="relative shrink-0">
