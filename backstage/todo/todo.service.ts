@@ -9,6 +9,7 @@ import type {
 import { isTodayScheduled, isTodoKind, isTimeGrain, isTodoNoteType, TODO_STATUS_LABEL } from '@/types/todo'
 
 const STATUSES = new Set<TodoStatus>(['active', 'pending', 'blocked', 'done', 'cancelled'])
+const CASCADE_TO_PENDING_CHILDREN = new Set<TodoStatus>(['blocked', 'cancelled'])
 const NOTE_TYPES = new Set<TodoNoteType>(['user', 'status_change'])
 const MAX_DEPTH = 6
 
@@ -257,7 +258,21 @@ export async function updateTodo(id: string, input: UpdateTodoInput): Promise<To
       sortOrder: await nextSortOrder(id),
     })
   }
+  if (statusChanged && current.kind === 'action' && nextStatus && CASCADE_TO_PENDING_CHILDREN.has(nextStatus)) {
+    await cascadeStatusToPendingDescendants(id, nextStatus)
+  }
   return getTodo(id)
+}
+
+async function cascadeStatusToPendingDescendants(parentId: string, status: TodoStatus): Promise<void> {
+  const children = await listTodos({ parentId })
+  for (const child of children) {
+    if (child.kind === 'action' && child.status === 'pending') {
+      await updateTodo(child.id, { status })
+      continue
+    }
+    await cascadeStatusToPendingDescendants(child.id, status)
+  }
 }
 
 export async function updateTodoContent(id: string, input: {

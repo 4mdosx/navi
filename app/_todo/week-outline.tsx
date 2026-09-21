@@ -43,6 +43,39 @@ function dropPositionFromEvent(event: React.DragEvent<HTMLElement>): DropPositio
   return 'into'
 }
 
+function useCommandPressed() {
+  const [pressed, setPressed] = useState(false)
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.key === 'Meta') setPressed(true)
+    }
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Meta' || event.key === 'MetaLeft' || event.key === 'MetaRight') {
+        setPressed(false)
+      }
+    }
+    const onPointer = (event: PointerEvent) => setPressed(event.metaKey)
+    const reset = () => setPressed(false)
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('pointermove', onPointer)
+    window.addEventListener('pointerdown', onPointer)
+    window.addEventListener('blur', reset)
+    document.addEventListener('visibilitychange', reset)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('pointermove', onPointer)
+      window.removeEventListener('pointerdown', onPointer)
+      window.removeEventListener('blur', reset)
+      document.removeEventListener('visibilitychange', reset)
+    }
+  }, [])
+
+  return pressed
+}
+
 export function WeekOutline({
   todos,
   ready = true,
@@ -76,6 +109,7 @@ export function WeekOutline({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   const [statusFilter, setStatusFilter] = useState<Set<TodoStatus>>(() => new Set(TODO_STATUSES))
+  const commandPressed = useCommandPressed()
   const todayKey = formatDateKey(new Date())
   const resolvedWeekStart = weekStart || formatWeekStart(new Date())
   const anchorDate = timeGrain === 'week' ? resolvedWeekStart : todayKey
@@ -160,6 +194,20 @@ export function WeekOutline({
       onTodosChanged()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '状态更新失败')
+    }
+  }
+
+  const deleteNode = async (todo: OutlineTreeNode) => {
+    if (saving || isNoteKind(todo.kind)) return
+    setSaving(true)
+    setError(null)
+    try {
+      await request(`/api/todos/${encodeURIComponent(todo.id)}?cascade=true`, { method: 'DELETE' })
+      onTodosChanged()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '删除失败')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -390,8 +438,10 @@ export function WeekOutline({
                 todayKey={todayKey}
                 scheduledIds={scheduledIds}
                 operableIds={operableIds}
+                commandPressed={commandPressed}
                 onToggleCollapse={toggleCollapse}
                 onChangeStatus={changeStatus}
+                onDelete={deleteNode}
                 onStartEdit={(todo) => { setEditingId(todo.id); setEditTitle(todo.title) }}
                 onEditTitle={setEditTitle}
                 onSaveTitle={saveTitle}
@@ -431,8 +481,10 @@ function OutlineRow({
   todayKey,
   scheduledIds,
   operableIds,
+  commandPressed,
   onToggleCollapse,
   onChangeStatus,
+  onDelete,
   onStartEdit,
   onEditTitle,
   onSaveTitle,
@@ -463,8 +515,10 @@ function OutlineRow({
   todayKey: string
   scheduledIds: Set<string>
   operableIds: Set<string> | null
+  commandPressed: boolean
   onToggleCollapse: (id: string) => void
   onChangeStatus: (todo: OutlineTreeNode, status: TodoStatus) => void
+  onDelete: (todo: OutlineTreeNode) => void
   onStartEdit: (todo: Todo) => void
   onEditTitle: (title: string) => void
   onSaveTitle: (todo: Todo) => void
@@ -679,6 +733,20 @@ function OutlineRow({
               移出今日
             </button>
           )}
+          {commandPressed && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onDelete(node)
+              }}
+              className="rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-background hover:text-destructive disabled:opacity-50"
+            >
+              删除
+            </button>
+          )}
         </div>
       </div>
       {!isCollapsed && (
@@ -720,8 +788,10 @@ function OutlineRow({
               todayKey={todayKey}
               scheduledIds={scheduledIds}
               operableIds={operableIds}
+              commandPressed={commandPressed}
               onToggleCollapse={onToggleCollapse}
               onChangeStatus={onChangeStatus}
+              onDelete={onDelete}
               onStartEdit={onStartEdit}
               onEditTitle={onEditTitle}
               onSaveTitle={onSaveTitle}
