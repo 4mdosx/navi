@@ -28,6 +28,7 @@ export interface Database {
     todoId: string
     grain: string
     date: string
+    createdAt: string
   }
   todo_time_spans: {
     id: string

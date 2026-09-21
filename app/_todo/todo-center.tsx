@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Circle, GripVertical, PanelLeft, Pencil, Play, Plus, Search, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Circle, GripVertical, Pencil, Play, Plus, Search, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -39,6 +39,7 @@ import type { ExecutionActivity } from '@/types/execution'
 import { TodoActivityView } from './todo-activity-view'
 import { TodoTimelineCalendar } from './todo-timeline-calendar'
 import { TodayExecutionCenter } from './today-execution-center'
+import { AppToolbar, type WorkspaceViewId } from './app-toolbar'
 import { StatusGlyph } from './todo-status'
 
 function getSundayOfWeekContaining(date: Date): Date {
@@ -1751,6 +1752,7 @@ export default function WeekPlanPage() {
   const [executionActivity, setExecutionActivity] = useState<ExecutionActivity[]>([])
   const [overviewOpen, setOverviewOpen] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(false)
+  const [view, setView] = useState<WorkspaceViewId>('week')
 
   const weekStart = formatWeekStartClient(weekAnchor)
   const isLoading = useTodoStore((s) => s.isLoading)
@@ -1916,72 +1918,68 @@ export default function WeekPlanPage() {
   )
 
   return (
-    <div className="h-svh pl-11">
-    <div className="relative mx-auto flex h-full max-w-[90rem] flex-col overflow-hidden p-4 sm:p-6">
-      <button
-        type="button"
-        onClick={() => setInsightsOpen((open) => !open)}
-        aria-expanded={insightsOpen}
-        aria-controls="todo-insights-drawer"
-        className="fixed left-0 top-1/2 z-50 flex -translate-y-1/2 flex-col items-center gap-1 rounded-r-xl border border-l-0 bg-card/95 px-1.5 py-3 text-xs font-medium shadow-sm backdrop-blur-sm hover:bg-muted"
-      >
-        <PanelLeft className="size-3.5" />
-        <span className="[writing-mode:vertical-rl]">周视图</span>
-        <kbd className="rounded border bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground [writing-mode:horizontal-tb]">⌥Esc</kbd>
-      </button>
+    <div className="flex h-svh">
+      <AppToolbar
+        view={view}
+        onViewChange={setView}
+        insightsOpen={insightsOpen}
+        onToggleInsights={() => setInsightsOpen((open) => !open)}
+      />
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div className="relative mx-auto flex h-full max-w-[90rem] flex-col overflow-hidden p-4 sm:p-6">
+          {loadError && (
+            <div className="mb-4 shrink-0 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+              {loadError}
+              <button
+                type="button"
+                className="ml-3 underline"
+                onClick={() => void loadWeek(weekStart)}
+              >
+                重试
+              </button>
+            </div>
+          )}
 
-      {loadError && (
-        <div className="mb-4 shrink-0 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-          {loadError}
-          <button
-            type="button"
-            className="ml-3 underline"
-            onClick={() => void loadWeek(weekStart)}
-          >
-            重试
-          </button>
+          <div className="min-h-0 flex-1 overflow-y-auto xl:overflow-hidden">
+            <section className="flex min-h-0 min-w-0 flex-col xl:h-full xl:overflow-hidden" aria-label="今日执行与任务地图">
+              <TodayExecutionCenter view={view} onViewChange={setView} todos={allTodos} todosReady={todosReady} onTodosChanged={refreshAllTodos} onExecutionChanged={refreshExecutionActivity} />
+            </section>
+          </div>
+          <Dialog open={overviewOpen} onOpenChange={setOverviewOpen}>
+            <DialogContent className="h-[92vh] w-[96vw] max-w-none overflow-hidden p-2 sm:p-4" overlayClassName="bg-neutral-950/30 backdrop-blur-sm">
+              <DialogHeader className="sr-only">
+                <DialogTitle>任务地图</DialogTitle>
+                <DialogDescription>按注意力阶段查看和安排全部 Todo。</DialogDescription>
+              </DialogHeader>
+              <TodoWorkspacePanel
+                overview
+                todos={allTodos}
+                dragProps={{
+                  isDragOver: isPendingDragOver,
+                  onDragOver: handlePendingDragOver,
+                  onDragLeave: handlePendingDragLeave,
+                  onDrop: handlePendingDrop,
+                }}
+                actions={{ addPending, removePending, removeTodo }}
+                updateTodo={updateTodo}
+                onTodoSaved={refreshAllTodos}
+              />
+            </DialogContent>
+          </Dialog>
         </div>
-      )}
-
-      <div className="min-h-0 flex-1 overflow-y-auto xl:overflow-hidden">
-        <section className="flex min-h-0 min-w-0 flex-col xl:h-full xl:overflow-hidden" aria-label="今日执行与任务地图">
-          <TodayExecutionCenter todos={allTodos} todosReady={todosReady} onTodosChanged={refreshAllTodos} onExecutionChanged={refreshExecutionActivity} />
-        </section>
-      </div>
-      <div className={cn('fixed inset-0 z-40 transition-[visibility] duration-300', !insightsOpen && 'pointer-events-none invisible')} aria-hidden={!insightsOpen}>
-        <button type="button" tabIndex={insightsOpen ? 0 : -1} aria-label="收起周视图抽屉" onClick={() => setInsightsOpen(false)} className={cn('absolute inset-0 bg-black/20 backdrop-blur-[1px] transition-opacity duration-300 ease-out motion-reduce:transition-none', insightsOpen ? 'opacity-100' : 'opacity-0')} />
-        <aside id="todo-insights-drawer" role="dialog" aria-modal="true" aria-label="Todo 时间与周视图" inert={!insightsOpen} className={cn('absolute inset-y-0 left-0 z-10 flex w-[min(22rem,92vw)] flex-col border-r bg-background py-3 pr-3 pl-12 shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', insightsOpen ? 'translate-x-0' : '-translate-x-full')}>
-          <div className="mb-3 flex shrink-0 items-center justify-between border-b pb-3">
-            <div><h2 className="text-sm font-semibold">周视图与投入</h2><p className="mt-0.5 text-[10px] text-muted-foreground">按 ⌥Esc 收起或再次弹出</p></div>
-            <button type="button" onClick={() => setInsightsOpen(false)} aria-label="关闭抽屉" className="rounded-md border p-1.5 hover:bg-muted"><X className="size-4" /></button>
-          </div>
-          <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto">
-            <TodoTimelineCalendar todos={allTodos} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
-            <TodoActivityView todos={allTodos} executionSessions={executionActivity} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
-          </div>
-        </aside>
-      </div>
-      <Dialog open={overviewOpen} onOpenChange={setOverviewOpen}>
-        <DialogContent className="h-[92vh] w-[96vw] max-w-none overflow-hidden p-2 sm:p-4" overlayClassName="bg-neutral-950/30 backdrop-blur-sm">
-          <DialogHeader className="sr-only">
-            <DialogTitle>任务地图</DialogTitle>
-            <DialogDescription>按注意力阶段查看和安排全部 Todo。</DialogDescription>
-          </DialogHeader>
-          <TodoWorkspacePanel
-            overview
-            todos={allTodos}
-            dragProps={{
-              isDragOver: isPendingDragOver,
-              onDragOver: handlePendingDragOver,
-              onDragLeave: handlePendingDragLeave,
-              onDrop: handlePendingDrop,
-            }}
-            actions={{ addPending, removePending, removeTodo }}
-            updateTodo={updateTodo}
-            onTodoSaved={refreshAllTodos}
-          />
-        </DialogContent>
-      </Dialog>
+        <div className={cn('absolute inset-0 z-40 overflow-hidden', !insightsOpen && 'pointer-events-none')} aria-hidden={!insightsOpen}>
+          <button type="button" tabIndex={insightsOpen ? 0 : -1} aria-label="收起周视图抽屉" onClick={() => setInsightsOpen(false)} className={cn('absolute inset-0 bg-black/20 backdrop-blur-[1px] transition-opacity duration-300 ease-out motion-reduce:transition-none', insightsOpen ? 'opacity-100' : 'opacity-0')} />
+          <aside id="todo-insights-drawer" role="dialog" aria-modal="true" aria-label="Todo 时间与周视图" inert={!insightsOpen} className={cn('absolute inset-y-0 left-0 z-10 flex w-[min(22rem,92vw)] flex-col border-r bg-background p-3 shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', insightsOpen ? 'translate-x-0' : '-translate-x-full')}>
+            <div className="mb-3 flex shrink-0 items-center justify-between border-b pb-3">
+              <div><h2 className="text-sm font-semibold">周视图与投入</h2><p className="mt-0.5 text-[10px] text-muted-foreground">按 ⌥Esc 收起或再次弹出</p></div>
+              <button type="button" onClick={() => setInsightsOpen(false)} aria-label="关闭抽屉" className="rounded-md border p-1.5 hover:bg-muted"><X className="size-4" /></button>
+            </div>
+            <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto">
+              <TodoTimelineCalendar todos={allTodos} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
+              <TodoActivityView todos={allTodos} executionSessions={executionActivity} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
+            </div>
+          </aside>
+        </div>
       </div>
     </div>
   )

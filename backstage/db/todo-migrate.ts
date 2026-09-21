@@ -59,10 +59,21 @@ export function migrateTodoDomain(sqlite: Database.Database): void {
       todoId TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
       grain TEXT NOT NULL,
       date TEXT NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT '',
       UNIQUE(todoId, grain, date)
     );
     CREATE INDEX IF NOT EXISTS idx_todo_time_links_lookup
     ON todo_time_links(grain, date, todoId);
+  `)
+
+  const timeLinkColumns = columnNames(sqlite, 'todo_time_links')
+  if (!timeLinkColumns.has('createdAt')) {
+    sqlite.exec("ALTER TABLE todo_time_links ADD COLUMN createdAt TEXT NOT NULL DEFAULT ''")
+  }
+  sqlite.exec(`
+    UPDATE todo_time_links
+    SET createdAt = date || 'T00:00:00.000Z'
+    WHERE createdAt IS NULL OR createdAt = ''
   `)
 
   sqlite.exec(`

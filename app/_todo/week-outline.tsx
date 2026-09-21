@@ -13,19 +13,22 @@ import {
   outlineTaskChildren,
   selectTimeOutline,
   siblingTasks,
+  todayOperableIds,
+  todayScheduledIds,
   wouldCreateCycle,
   type OutlineTreeNode,
 } from '@/lib/todo-outline'
 import { formatDateKey, formatWeekStart } from '@/backstage/week-plan/week-utils'
 import {
   isNoteKind,
+  todayDelayDays,
   TODO_STATUSES,
   type TimeGrain,
   type Todo,
   type TodoKind,
   type TodoStatus,
 } from '@/types/todo'
-import { StatusFilterButton, StatusPicker } from './todo-status'
+import { StatusFilterButton, StatusGlyph, StatusPicker } from './todo-status'
 import { OUTLINE_DRAG_TYPE, hasWorkspaceDrag, WORKSPACE_DRAG_TYPE } from './todo-drag'
 
 type Adding = { parentId: string | null; kind: TodoKind }
@@ -47,6 +50,7 @@ export function WeekOutline({
   weekStart,
   onTodosChanged,
   onPromote,
+  onRemoveFromToday,
   onSelect,
   onOpenNotes,
   onLeaveWorkspace,
@@ -57,6 +61,7 @@ export function WeekOutline({
   weekStart: string
   onTodosChanged: () => void
   onPromote?: (todoId: string) => void
+  onRemoveFromToday?: (todoId: string) => void
   onSelect?: (todo: Todo) => void
   onOpenNotes?: (todo: Todo) => void
   onLeaveWorkspace?: (todoId: string) => void
@@ -74,9 +79,15 @@ export function WeekOutline({
   const todayKey = formatDateKey(new Date())
   const resolvedWeekStart = weekStart || formatWeekStart(new Date())
   const anchorDate = timeGrain === 'week' ? resolvedWeekStart : todayKey
+  const isTodayView = timeGrain === 'day'
   const weekTodos = useMemo(
     () => selectTimeOutline(todos ?? [], timeGrain, anchorDate),
     [todos, timeGrain, anchorDate],
+  )
+  const scheduledIds = useMemo(() => todayScheduledIds(todos ?? [], todayKey), [todos, todayKey])
+  const operableIds = useMemo(
+    () => (isTodayView ? todayOperableIds(weekTodos, scheduledIds) : null),
+    [isTodayView, weekTodos, scheduledIds],
   )
   const visible = useMemo(
     () => filterOutlineByStatuses(weekTodos, statusFilter),
@@ -345,11 +356,15 @@ export function WeekOutline({
         )}
 
         {!ready ? (
-          <div className="rounded-lg border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">加载本周大纲…</div>
-        ) : weekTodos.filter((todo) => outlineRole(todo) === 'task' && !todo.parentId).length === 0 && !adding ? (
+          <div className="rounded-lg border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">
+            {isTodayView ? '加载今天大纲…' : '加载本周大纲…'}
+          </div>
+        ) : weekTodos.every((todo) => outlineRole(todo) !== 'task') && !adding ? (
           <div className="rounded-lg border border-dashed px-4 py-12 text-center">
-            <p className="text-sm font-medium">本周还没有任务</p>
-            <p className="mt-1 text-xs text-muted-foreground">点击上方「新增任务」开始。</p>
+            <p className="text-sm font-medium">{isTodayView ? '今天还没有安排任务' : '本周还没有任务'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {isTodayView ? '从本周点「加入今天」，或在上面新增。' : '点击上方「新增任务」开始。'}
+            </p>
           </div>
         ) : rootTasks.length === 0 ? (
           <div className="rounded-lg border border-dashed px-4 py-12 text-center">
@@ -371,6 +386,10 @@ export function WeekOutline({
                 draggingId={draggingId}
                 dropTarget={dropTarget}
                 blockedDropIds={blockedDropIds}
+                isTodayView={isTodayView}
+                todayKey={todayKey}
+                scheduledIds={scheduledIds}
+                operableIds={operableIds}
                 onToggleCollapse={toggleCollapse}
                 onChangeStatus={changeStatus}
                 onStartEdit={(todo) => { setEditingId(todo.id); setEditTitle(todo.title) }}
@@ -381,6 +400,7 @@ export function WeekOutline({
                 onSubmitAdd={() => adding && adding.kind !== 'note' && void createNode({ title: draft, parentId: adding.parentId, kind: adding.kind })}
                 onCancelAdd={() => { setAdding(null); setDraft('') }}
                 onPromote={onPromote}
+                onRemoveFromToday={onRemoveFromToday}
                 onSelect={onSelect}
                 onOpenNotes={onOpenNotes}
                 onDragStart={(id) => { setDraggingId(id); setDropTarget(null) }}
@@ -407,6 +427,10 @@ function OutlineRow({
   draggingId,
   dropTarget,
   blockedDropIds,
+  isTodayView,
+  todayKey,
+  scheduledIds,
+  operableIds,
   onToggleCollapse,
   onChangeStatus,
   onStartEdit,
@@ -417,6 +441,7 @@ function OutlineRow({
   onSubmitAdd,
   onCancelAdd,
   onPromote,
+  onRemoveFromToday,
   onSelect,
   onOpenNotes,
   onDragStart,
@@ -434,6 +459,10 @@ function OutlineRow({
   draggingId: string | null
   dropTarget: DropTarget | null
   blockedDropIds: Set<string>
+  isTodayView: boolean
+  todayKey: string
+  scheduledIds: Set<string>
+  operableIds: Set<string> | null
   onToggleCollapse: (id: string) => void
   onChangeStatus: (todo: OutlineTreeNode, status: TodoStatus) => void
   onStartEdit: (todo: Todo) => void
@@ -444,6 +473,7 @@ function OutlineRow({
   onSubmitAdd: () => void
   onCancelAdd: () => void
   onPromote?: (todoId: string) => void
+  onRemoveFromToday?: (todoId: string) => void
   onSelect?: (todo: Todo) => void
   onOpenNotes?: (todo: Todo) => void
   onDragStart: (id: string) => void
@@ -464,6 +494,11 @@ function OutlineRow({
   const dropPosition = isDropTarget ? dropTarget.position : null
   const editing = editingId === node.id
   const canDrag = !editing && !saving
+  const alreadyToday = scheduledIds.has(node.id)
+  const canChangeStatus = !isTodayView || (operableIds?.has(node.id) ?? false)
+  const canSchedule = Boolean(onPromote) && node.status !== 'done' && node.status !== 'cancelled' && !alreadyToday
+  const canRemoveFromToday = Boolean(onRemoveFromToday) && isTodayView && alreadyToday
+  const delayDays = alreadyToday ? todayDelayDays(node, todayKey) : 0
 
   const startDrag = (event: React.DragEvent<HTMLElement>) => {
     if (!canDrag) {
@@ -513,7 +548,7 @@ function OutlineRow({
           'group relative flex items-start gap-1 rounded-md px-1 py-1 transition-colors',
           hasChildren && 'mt-2 first:mt-0',
           isDragging && 'opacity-40',
-          !isDropTarget && 'hover:bg-muted/50',
+          !isDropTarget && 'hover:bg-neutral-200 dark:hover:bg-neutral-700',
           dropPosition === 'into' && 'bg-emerald-500/15 ring-1 ring-inset ring-emerald-400',
         )}
       >
@@ -551,12 +586,28 @@ function OutlineRow({
         ) : (
           <span className="size-6 shrink-0" />
         )}
-        <StatusPicker
-          compact
-          status={node.status}
-          disabled={saving}
-          onChange={(status) => onChangeStatus(node, status)}
-        />
+        {canChangeStatus ? (
+          <StatusPicker
+            compact
+            status={node.status}
+            disabled={saving}
+            onChange={(status) => onChangeStatus(node, status)}
+          />
+        ) : canSchedule ? (
+          <button
+            type="button"
+            aria-label={`把 ${node.title} 加入今天`}
+            title="加入今天"
+            onClick={() => onPromote?.(node.id)}
+            className="flex size-6 shrink-0 items-center justify-center rounded border border-primary/30 text-primary hover:bg-primary/10"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        ) : (
+          <span className="flex size-6 shrink-0 items-center justify-center rounded">
+            <StatusGlyph status={node.status} className="size-3.5" />
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           {editing ? (
             <Input
@@ -585,12 +636,18 @@ function OutlineRow({
                 onStartEdit(node)
               }}
               className={cn(
-                'flex min-h-6 w-full items-center rounded px-0.5 text-left text-sm leading-6 hover:text-foreground',
+                'flex min-h-6 w-full items-center gap-1.5 rounded px-0.5 text-left text-sm leading-6 hover:text-foreground group-hover:font-semibold',
                 hasChildren && 'font-semibold',
+                !canChangeStatus && 'text-muted-foreground',
                 (node.status === 'done' || node.status === 'cancelled') && 'text-muted-foreground line-through',
               )}
             >
-              {node.title}
+              <span className="min-w-0 truncate">{node.title}</span>
+              {delayDays > 0 && (
+                <span className="shrink-0 rounded bg-amber-100 px-1 py-px text-[10px] font-normal tabular-nums text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                  延误 {delayDays} 天
+                </span>
+              )}
             </button>
           )}
           {hasChildren && progress.total > 0 && (
@@ -598,9 +655,11 @@ function OutlineRow({
           )}
         </div>
         <div className="flex h-6 shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          <button type="button" onClick={() => onStartAdd(node.id, 'action')} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-background hover:text-foreground" title="挂一个衍生任务">
-            <Plus className="mr-0.5 inline size-3" />子任务
-          </button>
+          {canChangeStatus && (
+            <button type="button" onClick={() => onStartAdd(node.id, 'action')} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-background hover:text-foreground" title="挂一个衍生任务">
+              <Plus className="mr-0.5 inline size-3" />子任务
+            </button>
+          )}
           <button
             type="button"
             onClick={() => (onOpenNotes ?? onSelect)?.(node)}
@@ -608,8 +667,17 @@ function OutlineRow({
           >
             备注
           </button>
-          {onPromote && node.status !== 'done' && node.status !== 'cancelled' && (
-            <button type="button" onClick={() => onPromote(node.id)} className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10">加入今天</button>
+          {canSchedule && !isTodayView && (
+            <button type="button" onClick={() => onPromote?.(node.id)} className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10">加入今天</button>
+          )}
+          {canRemoveFromToday && (
+            <button
+              type="button"
+              onClick={() => onRemoveFromToday?.(node.id)}
+              className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-background hover:text-foreground"
+            >
+              移出今日
+            </button>
           )}
         </div>
       </div>
@@ -648,6 +716,10 @@ function OutlineRow({
               draggingId={draggingId}
               dropTarget={dropTarget}
               blockedDropIds={blockedDropIds}
+              isTodayView={isTodayView}
+              todayKey={todayKey}
+              scheduledIds={scheduledIds}
+              operableIds={operableIds}
               onToggleCollapse={onToggleCollapse}
               onChangeStatus={onChangeStatus}
               onStartEdit={onStartEdit}
@@ -658,6 +730,7 @@ function OutlineRow({
               onSubmitAdd={onSubmitAdd}
               onCancelAdd={onCancelAdd}
               onPromote={onPromote}
+              onRemoveFromToday={onRemoveFromToday}
               onSelect={onSelect}
               onOpenNotes={onOpenNotes}
               onDragStart={onDragStart}

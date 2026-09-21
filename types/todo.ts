@@ -42,6 +42,7 @@ export type TodoTimeLink = {
   todoId: string
   grain: TimeGrain
   date: string
+  createdAt?: string
 }
 
 export function todoTimeLinks(todo?: Pick<Todo, 'timeLinks'> | null): TodoTimeLink[] {
@@ -54,6 +55,66 @@ export function hasTimeLink(
   date?: string,
 ): boolean {
   return todoTimeLinks(todo).some((link) => link.grain === grain && (date == null || link.date === date))
+}
+
+export function dayTimeLinksOnOrBefore(
+  todo?: Pick<Todo, 'timeLinks'> | null,
+  untilDate?: string,
+): TodoTimeLink[] {
+  return todoTimeLinks(todo)
+    .filter((link) => link.grain === 'day' && (untilDate == null || link.date <= untilDate))
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
+}
+
+export function earliestDayLink(
+  todo?: Pick<Todo, 'timeLinks'> | null,
+  untilDate?: string,
+): TodoTimeLink | null {
+  return dayTimeLinksOnOrBefore(todo, untilDate)[0] ?? null
+}
+
+export function calendarDaysBetween(fromKey: string, toKey: string): number {
+  const from = Date.parse(`${fromKey}T00:00:00`)
+  const to = Date.parse(`${toKey}T00:00:00`)
+  if (Number.isNaN(from) || Number.isNaN(to)) return 0
+  return Math.round((to - from) / 86_400_000)
+}
+
+export function isTodayScheduled(
+  todo?: Pick<Todo, 'kind' | 'status' | 'completedAt' | 'updatedAt' | 'timeLinks'> | null,
+  todayKey?: string,
+): boolean {
+  if (!todo || !todayKey) return false
+  if (todo.kind === 'note' || todo.kind === 'rest' || todo.status === 'cancelled') return false
+  if (!earliestDayLink(todo, todayKey)) return false
+  if (isCarryTodoStatus(todo.status)) return true
+  if (todo.status === 'done') {
+    const completed = todo.completedAt ?? todo.updatedAt
+    const completedKey = /^\d{4}-\d{2}-\d{2}$/.test(completed)
+      ? completed
+      : formatLocalDateKey(completed)
+    return completedKey === todayKey
+  }
+  return false
+}
+
+export function todayDelayDays(
+  todo?: Pick<Todo, 'status' | 'timeLinks'> | null,
+  todayKey?: string,
+): number {
+  if (!todo || !todayKey || !isCarryTodoStatus(todo.status)) return 0
+  const link = earliestDayLink(todo, todayKey)
+  if (!link) return 0
+  return Math.max(0, calendarDaysBetween(link.date, todayKey))
+}
+
+function formatLocalDateKey(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso.slice(0, 10)
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 export function weekStartOf(todo?: Pick<Todo, 'timeLinks'> | null): string | null {

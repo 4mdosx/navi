@@ -1,37 +1,88 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --primary: #171717;
+  --primary-foreground: #fafafa;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --accent: #f5f5f5;
+  --accent-foreground: #171717;
+  --destructive: #dc2626;
+  --destructive-foreground: #fafafa;
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #a3a3a3;
   --status-pending: #7c3aed;
   --status-active: #0284c7;
   --status-blocked: #d97706;
   --status-done: #059669;
   --status-cancelled: #737373;
-}
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-status-pending: #7c3aed;
-  --color-status-active: #0284c7;
-  --color-status-blocked: #d97706;
-  --color-status-done: #059669;
-  --color-status-cancelled: #737373;
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
+  @variant dark {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --card: #171717;
+    --card-foreground: #ededed;
+    --popover: #171717;
+    --popover-foreground: #ededed;
+    --primary: #ededed;
+    --primary-foreground: #171717;
+    --secondary: #262626;
+    --secondary-foreground: #ededed;
+    --muted: #262626;
+    --muted-foreground: #a3a3a3;
+    --accent: #262626;
+    --accent-foreground: #ededed;
+    --destructive: #ef4444;
+    --destructive-foreground: #fafafa;
+    --border: #404040;
+    --input: #404040;
+    --ring: #737373;
     --status-pending: #a78bfa;
     --status-active: #38bdf8;
     --status-blocked: #fbbf24;
     --status-done: #34d399;
     --status-cancelled: #a3a3a3;
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-status-pending: var(--status-pending);
+  --color-status-active: var(--status-active);
+  --color-status-blocked: var(--status-blocked);
+  --color-status-done: var(--status-done);
+  --color-status-cancelled: var(--status-cancelled);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
 [data-todo-status="pending"] { color: var(--status-pending); }
@@ -61,6 +112,10 @@ svg[data-todo-status] {
 .todo-status-border-blocked { border-color: color-mix(in srgb, var(--status-blocked) 40%, transparent); }
 .todo-status-border-done { border-color: color-mix(in srgb, var(--status-done) 40%, transparent); }
 .todo-status-border-cancelled { border-color: color-mix(in srgb, var(--status-cancelled) 40%, transparent); }
+
+* {
+  border-color: var(--border);
+}
 
 body {
   background: var(--background);

@@ -91,20 +91,30 @@ export async function startTodoNow(todoId: string) {
   return act(item.id, 'start')
 }
 
-export async function removeFromToday(id: string) {
+export async function removeFromToday(todoId: string) {
   const db = await getDatabase()
+  const date = key()
   const now = new Date().toISOString()
-  const item = await db.selectFrom('work_items').selectAll().where('id', '=', id).executeTakeFirstOrThrow()
-  const open = await db.selectFrom('execution_sessions').selectAll()
-    .where('workItemId', '=', id).where('endedAt', 'is', null).execute()
-  for (const session of open) {
-    await db.updateTable('execution_sessions').set({ endedAt: now, endReason: 'interrupted' }).where('id', '=', session.id).execute()
+  const todo = await db.selectFrom('todos').select(['id', 'status']).where('id', '=', todoId).executeTakeFirstOrThrow()
+  await db.deleteFrom('todo_time_links')
+    .where('todoId', '=', todoId)
+    .where('grain', '=', 'day')
+    .where('date', '<=', date)
+    .execute()
+  const item = await db.selectFrom('work_items').selectAll()
+    .where('sourceType', '=', 'todo')
+    .where('sourceId', '=', todoId)
+    .where('scheduledDate', '=', date)
+    .executeTakeFirst()
+  if (item) {
+    const open = await db.selectFrom('execution_sessions').selectAll()
+      .where('workItemId', '=', item.id).where('endedAt', 'is', null).execute()
+    for (const session of open) {
+      await db.updateTable('execution_sessions').set({ endedAt: now, endReason: 'interrupted' }).where('id', '=', session.id).execute()
+    }
+    await db.updateTable('work_items').set({ state: 'skipped', updatedAt: now }).where('id', '=', item.id).execute()
   }
-  await db.updateTable('work_items').set({ state: 'skipped', updatedAt: now }).where('id', '=', id).execute()
-  if (item.sourceType === 'todo') {
-    const todo = await db.selectFrom('todos').select(['id', 'status']).where('id', '=', item.sourceId).executeTakeFirst()
-    if (todo?.status === 'active') await updateTodo(todo.id, { status: 'pending' })
-  }
+  if (todo.status === 'active') await updateTodo(todo.id, { status: 'pending' })
   return getToday()
 }
 

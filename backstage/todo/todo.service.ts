@@ -6,7 +6,7 @@ import { startTodoTimeSpan, stopTodoTimeSpan } from '@/backstage/todo/todo-time-
 import type {
   CreateTodoInput, TimeGrain, Todo, TodoKind, TodoNoteType, TodoStatus, TodoTimeLink, UpdateTodoInput,
 } from '@/types/todo'
-import { isTodoKind, isTimeGrain, isTodoNoteType, TODO_STATUS_LABEL } from '@/types/todo'
+import { isTodayScheduled, isTodoKind, isTimeGrain, isTodoNoteType, TODO_STATUS_LABEL } from '@/types/todo'
 
 const STATUSES = new Set<TodoStatus>(['active', 'pending', 'blocked', 'done', 'cancelled'])
 const NOTE_TYPES = new Set<TodoNoteType>(['user', 'status_change'])
@@ -38,7 +38,13 @@ async function loadTimeLinks(ids: string[]): Promise<Map<string, TodoTimeLink[]>
   for (const row of rows) {
     if (!isTimeGrain(row.grain)) continue
     const links = grouped.get(row.todoId) ?? []
-    links.push({ id: row.id, todoId: row.todoId, grain: row.grain, date: row.date })
+    links.push({
+      id: row.id,
+      todoId: row.todoId,
+      grain: row.grain,
+      date: row.date,
+      createdAt: row.createdAt || `${row.date}T00:00:00.000Z`,
+    })
     grouped.set(row.todoId, links)
   }
   return grouped
@@ -76,11 +82,13 @@ export async function linkTodoTime(todoId: string, grain: TimeGrain, date: strin
   if (!trimmed) throw new Error('Time link date is required')
   await getTodo(todoId)
   const db = await getDatabase()
+  const now = new Date().toISOString()
   await db.insertInto('todo_time_links').values({
     id: `time-${grain}-${Date.now()}-${nanoid(6)}`,
     todoId,
     grain,
     date: trimmed,
+    createdAt: now,
   }).onConflict((conflict) => conflict.columns(['todoId', 'grain', 'date']).doNothing()).execute()
   return getTodo(todoId)
 }
@@ -110,6 +118,7 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
   const time = normalizeTimeInput(input)
   if (parentTodo && kind !== 'note' && kind !== 'rest') {
     for (const link of parentTodo.timeLinks ?? []) {
+      if (link.grain === 'day') continue
       if (!time.some((item) => item.grain === link.grain && item.date === link.date)) {
         time.push({ grain: link.grain, date: link.date })
       }
@@ -139,6 +148,7 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
       todoId: id,
       grain: link.grain,
       date: link.date,
+      createdAt: now,
     }).onConflict((conflict) => conflict.columns(['todoId', 'grain', 'date']).doNothing()).execute()
   }
   if (status === 'active' && kind !== 'note') await startTodoTimeSpan(id)
@@ -186,6 +196,9 @@ export async function listTodos(input: {
   const rows = await query.orderBy('sortOrder').orderBy('createdAt', 'desc').execute()
   const todos = await withTimeLinks(rows)
   if (!input.grain) return todos
+  if (input.grain === 'day' && input.date) {
+    return todos.filter((todo) => isTodayScheduled(todo, input.date))
+  }
   return todos.filter((todo) => (todo.timeLinks ?? []).some((link) => (
     link.grain === input.grain && (input.date == null || link.date === input.date)
   )))

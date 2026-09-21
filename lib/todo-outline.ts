@@ -2,6 +2,7 @@ import { shiftWeekStart, formatWeekStart, formatDateKey } from '@/backstage/week
 import {
   hasTimeLink,
   isCarryTodoStatus,
+  isTodayScheduled,
   todoTimeLinks,
   type TimeGrain,
   type Todo,
@@ -202,7 +203,72 @@ export function selectLinkedOutline(todos: Todo[], grain: TimeGrain, date?: stri
 
 export function selectTimeOutline(todos: Todo[], grain: TimeGrain, date: string): Todo[] {
   if (grain === 'week') return selectWeekOutline(todos, date)
+  if (grain === 'day') return selectTodayOutline(todos, date)
   return selectLinkedOutline(todos, grain, grain === 'horizon' ? undefined : date)
+}
+
+export function todayScheduledIds(todos: Todo[], todayKey: string): Set<string> {
+  const ids = new Set<string>()
+  for (const todo of todos) {
+    if (isTodayScheduled(todo, todayKey)) ids.add(todo.id)
+  }
+  return ids
+}
+
+export function todayOperableIds(todos: Todo[], scheduledIds: ReadonlySet<string>): Set<string> {
+  const ids = new Set(scheduledIds)
+  const childrenOf = new Map<string, string[]>()
+  for (const todo of todos) {
+    if (!todo.parentId || todo.kind === 'note' || todo.kind === 'rest') continue
+    const list = childrenOf.get(todo.parentId) ?? []
+    list.push(todo.id)
+    childrenOf.set(todo.parentId, list)
+  }
+  const walk = (parentId: string) => {
+    for (const childId of childrenOf.get(parentId) ?? []) {
+      if (ids.has(childId)) continue
+      ids.add(childId)
+      walk(childId)
+    }
+  }
+  for (const id of scheduledIds) walk(id)
+  return ids
+}
+
+export function selectTodayOutline(todos: Todo[], todayKey: string): Todo[] {
+  const list = todos.filter(Boolean).map((todo) => ({ ...todo, timeLinks: todoTimeLinks(todo) }))
+  const byId = new Map(list.map((todo) => [todo.id, todo]))
+  const seeds = todayScheduledIds(list, todayKey)
+  const visible = new Set<string>(seeds)
+
+  for (const id of seeds) {
+    const todo = byId.get(id)
+    if (!todo) continue
+    if (todo.parentId && byId.has(todo.parentId)) visible.add(todo.parentId)
+    if (todo.parentId) {
+      for (const sibling of list) {
+        if (
+          sibling.parentId === todo.parentId
+          && sibling.kind !== 'note'
+          && sibling.kind !== 'rest'
+          && sibling.status !== 'cancelled'
+        ) {
+          visible.add(sibling.id)
+        }
+      }
+    }
+    const addDescendants = (parentId: string, seen: Set<string>) => {
+      for (const child of list) {
+        if (child.parentId !== parentId || child.status === 'cancelled' || seen.has(child.id)) continue
+        seen.add(child.id)
+        visible.add(child.id)
+        addDescendants(child.id, seen)
+      }
+    }
+    addDescendants(id, new Set([id]))
+  }
+
+  return withNotesOfVisible(list, visible)
 }
 
 function withAncestors(

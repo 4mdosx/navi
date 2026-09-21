@@ -5,11 +5,8 @@ import { Ban, Check, ChevronDown, ChevronUp, Circle, Filter, Pause, Play } from 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
-  TODO_KIND_LABEL,
   TODO_STATUS_LABEL,
   TODO_STATUSES,
-  USER_TODO_KINDS,
-  type TodoKind,
   type TodoStatus,
 } from '@/types/todo'
 
@@ -224,67 +221,6 @@ export function StatusPicker({
             >
               <StatusGlyph status={item} className="size-3.5" />
               {TODO_STATUS_LABEL[item]}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-export function KindPicker({
-  kind,
-  disabled,
-  onChange,
-}: {
-  kind: TodoKind
-  disabled?: boolean
-  onChange: (kind: TodoKind) => void
-}) {
-  const { open, setOpen, rootRef } = useMenuOpen()
-  const options = USER_TODO_KINDS
-
-  return (
-    <div ref={rootRef} className="relative shrink-0">
-      <button
-        type="button"
-        disabled={disabled}
-        aria-label={`类型：${TODO_KIND_LABEL[kind]}`}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          if (!disabled) setOpen((current) => !current)
-        }}
-        className="flex h-7 items-center gap-1 rounded-md border bg-background px-2 text-[11px] font-medium hover:bg-muted disabled:opacity-50"
-      >
-        {TODO_KIND_LABEL[kind]}
-        <ChevronDown className="size-3 opacity-70" />
-      </button>
-      {open && (
-        <div
-          role="listbox"
-          className="absolute left-0 z-30 mt-1 w-28 rounded-md border bg-background p-1 shadow-md"
-        >
-          {options.map((item) => (
-            <button
-              key={item}
-              type="button"
-              role="option"
-              aria-selected={item === kind}
-              onClick={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                setOpen(false)
-                if (item !== kind) onChange(item)
-              }}
-              className={cn(
-                'flex w-full items-center rounded px-2 py-1.5 text-left text-xs hover:bg-muted',
-                item === kind && 'bg-muted font-medium',
-              )}
-            >
-              {TODO_KIND_LABEL[item]}
             </button>
           ))}
         </div>
