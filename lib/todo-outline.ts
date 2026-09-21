@@ -1,10 +1,8 @@
 import { shiftWeekStart, formatWeekStart } from '@/backstage/week-plan/week-utils'
 import {
   hasTimeLink,
-  isCheckableKind,
   isNoteKind,
   isOpenTodoStatus,
-  isThemeKind,
   todoTimeLinks,
   type TimeGrain,
   type Todo,
@@ -226,12 +224,42 @@ export function buildOutlineTree(todos: Todo[]): OutlineTreeNode[] {
 
 export function outlineRole(todo: Pick<Todo, 'kind'>): 'theme' | 'task' | 'note' {
   if (isNoteKind(todo.kind)) return 'note'
-  if (isThemeKind(todo.kind) || !isCheckableKind(todo.kind)) return 'theme'
+  // Outline UI treats former themes (outcome/direction) as checkable tasks.
   return 'task'
 }
 
+export function outlineTaskChildren(node: OutlineTreeNode): OutlineTreeNode[] {
+  return node.children.filter((child) => outlineRole(child) === 'task')
+}
+
+export function siblingTasks(todos: Todo[], parentId: string | null, excludeId?: string): Todo[] {
+  return todos
+    .filter((todo) => (todo.parentId ?? null) === parentId && outlineRole(todo) === 'task' && todo.id !== excludeId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt))
+}
+
+export function noteChildrenOf(todos: Todo[], parentId: string): Todo[] {
+  return todos
+    .filter((todo) => todo.parentId === parentId && outlineRole(todo) === 'note')
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.sortOrder - b.sortOrder)
+}
+
+export function wouldCreateCycle(todos: Todo[], sourceId: string, newParentId: string | null): boolean {
+  if (newParentId == null) return false
+  if (newParentId === sourceId) return true
+  const byId = new Map(todos.map((todo) => [todo.id, todo]))
+  let cursor: string | null = newParentId
+  const seen = new Set<string>()
+  while (cursor) {
+    if (cursor === sourceId || seen.has(cursor)) return true
+    seen.add(cursor)
+    cursor = byId.get(cursor)?.parentId ?? null
+  }
+  return false
+}
+
 export function hasDescendantTasks(node: OutlineTreeNode): boolean {
-  return node.children.some((child) => outlineRole(child) === 'task' || hasDescendantTasks(child))
+  return outlineTaskChildren(node).some((child) => outlineRole(child) === 'task' || hasDescendantTasks(child))
 }
 
 export function countOutlineProgress(node: OutlineTreeNode): { done: number; total: number } {

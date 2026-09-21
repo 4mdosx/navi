@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 数据库初始化脚本：创建 settings / todos / 长期计划 / 今日执行表。
+ * 数据库初始化脚本：创建 settings / todos / 今日执行表。
  *
  * 用法:
  *   npm run init-db
@@ -11,7 +11,6 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import { migrateTodoDomain } from './todo-migrate'
-import { migrateLongTermPlanDomain } from './long-term-plan-migrate'
 import { migrateExecutionDomain } from './execution-migrate'
 
 const dbPath = process.env.DB_FILE_NAME
@@ -40,7 +39,11 @@ function initializeDatabase(): void {
     `)
 
     migrateTodoDomain(sqlite)
-    migrateLongTermPlanDomain(sqlite)
+    sqlite.exec(`
+      DROP TABLE IF EXISTS plan_check_ins;
+      DROP TABLE IF EXISTS plan_occurrences;
+      DROP TABLE IF EXISTS long_term_plans;
+    `)
     migrateExecutionDomain(sqlite)
 
     console.log('✓ Database initialized successfully')

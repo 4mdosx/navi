@@ -1,46 +1,56 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Circle, Plus } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Check, ChevronDown, Circle, GripVertical, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import {
   buildOutlineTree,
   countOutlineProgress,
-  hasDescendantTasks,
   outlineRole,
-  parseOutline,
+  outlineTaskChildren,
   selectTimeOutline,
+  siblingTasks,
+  wouldCreateCycle,
   type OutlineTreeNode,
 } from '@/lib/todo-outline'
-import { formatWeekStartClient } from './week-plan-api'
-import { formatDateKey, shiftWeekStart } from '@/backstage/week-plan/week-utils'
-import { hasTimeLink, isCheckableKind, type TimeGrain, type Todo, type TodoKind } from '@/types/todo'
+import { formatDateKey, formatWeekStart } from '@/backstage/week-plan/week-utils'
+import { isNoteKind, isThemeKind, type TimeGrain, type Todo, type TodoKind } from '@/types/todo'
 
 type Adding = { parentId: string | null; kind: TodoKind }
+type DropPosition = 'before' | 'after' | 'into'
+type DropTarget = { id: string; position: DropPosition }
+
+const OUTLINE_DRAG_TYPE = 'application/x-navi-outline-todo'
+
+function dropPositionFromEvent(event: React.DragEvent<HTMLElement>): DropPosition {
+  const rect = event.currentTarget.getBoundingClientRect()
+  const ratio = (event.clientY - rect.top) / Math.max(rect.height, 1)
+  if (ratio < 0.28) return 'before'
+  if (ratio > 0.72) return 'after'
+  return 'into'
+}
 
 export function WeekOutline({
   todos,
   ready = true,
   timeGrain = 'week',
+  weekStart,
   onTodosChanged,
   onPromote,
-  onPinHorizon,
   onSelect,
+  onOpenNotes,
 }: {
   todos: Todo[]
   ready?: boolean
   timeGrain?: TimeGrain
+  weekStart: string
   onTodosChanged: () => void
   onPromote?: (todoId: string) => void
-  onPinHorizon?: (todoId: string) => void
   onSelect?: (todo: Todo) => void
+  onOpenNotes?: (todo: Todo) => void
 }) {
-  const [weekStart, setWeekStart] = useState(() => formatWeekStartClient(new Date()))
-  const [pasteOpen, setPasteOpen] = useState(false)
-  const [pasteText, setPasteText] = useState('')
   const [adding, setAdding] = useState<Adding | null>(null)
   const [draft, setDraft] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -48,16 +58,16 @@ export function WeekOutline({
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const currentWeek = formatWeekStartClient(new Date())
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   const todayKey = formatDateKey(new Date())
-  const isCurrentWeek = weekStart === currentWeek
-  const anchorDate = timeGrain === 'week' ? weekStart : todayKey
+  const resolvedWeekStart = weekStart || formatWeekStart(new Date())
+  const anchorDate = timeGrain === 'week' ? resolvedWeekStart : todayKey
   const visible = useMemo(
     () => selectTimeOutline(todos ?? [], timeGrain, anchorDate),
     [todos, timeGrain, anchorDate],
   )
   const tree = useMemo(() => buildOutlineTree(visible), [visible])
-  const preview = useMemo(() => parseOutline(pasteText), [pasteText])
 
   const request = async (url: string, init: RequestInit) => {
     const response = await fetch(url, { credentials: 'include', ...init })
@@ -111,7 +121,7 @@ export function WeekOutline({
   }
 
   const toggleDone = async (todo: OutlineTreeNode) => {
-    if (!isCheckableKind(todo.kind) || hasDescendantTasks(todo)) return
+    if (isNoteKind(todo.kind)) return
     try {
       await request(`/api/todos/${encodeURIComponent(todo.id)}`, {
         method: 'PATCH',
@@ -119,6 +129,7 @@ export function WeekOutline({
         body: JSON.stringify({
           status: todo.status === 'done' ? 'pending' : 'done',
           version: todo.version,
+          ...(isThemeKind(todo.kind) ? { kind: 'action' as const } : {}),
         }),
       })
       onTodosChanged()
@@ -127,24 +138,69 @@ export function WeekOutline({
     }
   }
 
-  const importPaste = async () => {
-    if (!pasteText.trim() || saving) return
+  const patchSortOrder = (id: string, sortOrder: number) =>
+    request(`/api/todos/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sortOrder }),
+    })
+
+  const moveNode = async (sourceId: string, target: DropTarget) => {
+    if (saving || sourceId === target.id) return
+    const source = visible.find((todo) => todo.id === sourceId)
+    if (!source) return
+    const targetTodo = visible.find((todo) => todo.id === target.id)
+    if (!targetTodo) return
+
+    const newParentId = target.position === 'into' ? targetTodo.id : targetTodo.parentId
+    if (wouldCreateCycle(visible, sourceId, newParentId)) return
+
+    const siblings = siblingTasks(visible, newParentId, sourceId)
+    const targetIndex = siblings.findIndex((todo) => todo.id === target.id)
+    const insertIndex = target.position === 'into'
+      ? siblings.length
+      : targetIndex < 0
+        ? siblings.length
+        : target.position === 'before'
+          ? targetIndex
+          : targetIndex + 1
+    const nextSiblings = [...siblings]
+    nextSiblings.splice(insertIndex, 0, source)
+
+    const currentSiblings = siblingTasks(visible, source.parentId)
+    const currentIndex = currentSiblings.findIndex((todo) => todo.id === sourceId)
+    const sameParent = (source.parentId ?? null) === (newParentId ?? null)
+    if (sameParent && currentIndex === insertIndex) return
+
     setSaving(true)
     setError(null)
     try {
-      await request('/api/todos/outline', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: pasteText,
-          time: [{ grain: timeGrain, date: anchorDate }],
-        }),
-      })
-      setPasteText('')
-      setPasteOpen(false)
+      if (!sameParent) {
+        await request(`/api/todos/${encodeURIComponent(sourceId)}/move`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parentId: newParentId, sortOrder: insertIndex, version: source.version }),
+        })
+        const oldSiblings = siblingTasks(visible, source.parentId, sourceId)
+        await Promise.all([
+          ...nextSiblings.map((todo, index) => (
+            todo.id === sourceId ? Promise.resolve() : patchSortOrder(todo.id, index)
+          )),
+          ...oldSiblings.map((todo, index) => patchSortOrder(todo.id, index)),
+        ])
+      } else {
+        await Promise.all(nextSiblings.map((todo, index) => patchSortOrder(todo.id, index)))
+      }
+      if (target.position === 'into') {
+        setCollapsed((current) => {
+          const next = new Set(current)
+          next.delete(target.id)
+          return next
+        })
+      }
       onTodosChanged()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '导入失败')
+      setError(cause instanceof Error ? cause.message : '拖拽调整失败')
     } finally {
       setSaving(false)
     }
@@ -160,6 +216,7 @@ export function WeekOutline({
   }
 
   const startAdd = (parentId: string | null, kind: TodoKind) => {
+    if (kind === 'note') return
     setAdding({ parentId, kind })
     setDraft('')
     if (parentId) {
@@ -171,65 +228,97 @@ export function WeekOutline({
     }
   }
 
+  const clearDrag = () => {
+    setDraggingId(null)
+    setDropTarget(null)
+  }
+
+  const addingRoot = adding?.parentId == null
+  const rootTasks = tree.filter((node) => outlineRole(node) === 'task')
+  const blockedDropIds = useMemo(() => {
+    if (!draggingId) return new Set<string>()
+    const ids = new Set<string>([draggingId])
+    const addDescendants = (parentId: string) => {
+      for (const todo of visible) {
+        if (todo.parentId === parentId) {
+          ids.add(todo.id)
+          addDescendants(todo.id)
+        }
+      }
+    }
+    addDescendants(draggingId)
+    return ids
+  }, [draggingId, visible])
+
+  useEffect(() => {
+    const onWindowDragEnd = () => clearDrag()
+    window.addEventListener('dragend', onWindowDragEnd)
+    return () => window.removeEventListener('dragend', onWindowDragEnd)
+  }, [])
+
+  useEffect(() => {
+    const onWindowDragEnd = () => clearDrag()
+    window.addEventListener('dragend', onWindowDragEnd)
+    return () => window.removeEventListener('dragend', onWindowDragEnd)
+  }, [])
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
-        {timeGrain === 'week' ? (
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={() => setWeekStart(shiftWeekStart(weekStart, -1))} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="上一周">
-              <ChevronLeft className="size-4" />
-            </button>
-            <div className="min-w-36 text-center">
-              <p className="text-xs font-medium">{weekStart} 起</p>
-              <p className="text-[10px] text-muted-foreground">{isCurrentWeek ? '本周时间视图' : '历史周视图，任务本身不挂在某一周下面'}</p>
-            </div>
-            <button type="button" onClick={() => setWeekStart(shiftWeekStart(weekStart, 1))} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="下一周">
-              <ChevronRight className="size-4" />
-            </button>
-            {!isCurrentWeek && (
-              <button type="button" onClick={() => setWeekStart(currentWeek)} className="ml-1 text-[10px] text-primary hover:underline">回到本周</button>
-            )}
-          </div>
-        ) : (
-          <div>
-            <p className="text-xs font-medium">长期时间视图</p>
-            <p className="text-[10px] text-muted-foreground">同一批任务，只看关联到长期的条目</p>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center gap-1">
-          <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => startAdd(null, 'outcome')}>主题</Button>
-          <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => startAdd(null, 'action')}>任务</Button>
-          <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => startAdd(null, 'note')}>备注</Button>
-          <Button type="button" size="sm" variant={pasteOpen ? 'default' : 'outline'} className="h-7 px-2 text-[11px]" onClick={() => setPasteOpen((open) => !open)}>粘贴笔记</Button>
-        </div>
-      </div>
-
-      {pasteOpen && (
-        <div className="shrink-0 border-b bg-muted/20 p-3">
-          <p className="mb-2 text-[11px] text-muted-foreground">按你平时写周计划的方式粘贴：主题做分组，`-` 是任务，☑️ 表示完成，缩进会变成子项。</p>
-          <Textarea value={pasteText} onChange={(event) => setPasteText(event.target.value)} rows={8} placeholder={'踢一脚\n- VPN 问题☑️\n- 平台接口\n  - 还未验证测试'} className="font-mono text-xs" />
-          {preview.length > 0 && <p className="mt-2 text-[10px] text-muted-foreground">将导入 {countDrafts(preview)} 条</p>}
-          <div className="mt-2 flex justify-end gap-2">
-            <Button type="button" size="sm" variant="ghost" onClick={() => setPasteOpen(false)}>取消</Button>
-            <Button type="button" size="sm" disabled={saving || preview.length === 0} onClick={() => void importPaste()}>{saving ? '导入中…' : timeGrain === 'horizon' ? '导入到长期' : '导入到本周'}</Button>
-          </div>
-        </div>
-      )}
-
       {error && <p className="shrink-0 px-3 py-2 text-xs text-destructive">{error}</p>}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto p-3"
+        onDragOver={(event) => {
+          if (!draggingId || rootTasks.length === 0) return
+          if ((event.target as HTMLElement).closest('[data-outline-row]')) return
+          event.preventDefault()
+          const last = rootTasks[rootTasks.length - 1]
+          if (last.id !== draggingId) setDropTarget({ id: last.id, position: 'after' })
+        }}
+        onDrop={(event) => {
+          if (!draggingId || !dropTarget) return
+          event.preventDefault()
+          void moveNode(draggingId, dropTarget)
+          clearDrag()
+        }}
+      >
+        <div className="mb-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 px-2 text-[11px]"
+            onClick={() => startAdd(null, 'action')}
+            disabled={saving || (addingRoot && Boolean(adding))}
+          >
+            <Plus className="size-3.5" />
+            新增任务
+          </Button>
+        </div>
+
+        {addingRoot && adding && adding.kind !== 'note' && (
+          <div className="mb-2">
+            <AddRow
+              kind={adding.kind}
+              value={draft}
+              saving={saving}
+              onChange={setDraft}
+              onSubmit={() => void createNode({ title: draft, parentId: null, kind: adding.kind })}
+              onCancel={() => { setAdding(null); setDraft('') }}
+            />
+          </div>
+        )}
+
         {!ready ? (
           <div className="rounded-lg border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">加载本周大纲…</div>
-        ) : tree.length === 0 && !adding && !pasteOpen ? (
+        ) : rootTasks.length === 0 && !adding ? (
           <div className="rounded-lg border border-dashed px-4 py-12 text-center">
-            <p className="text-sm font-medium">{timeGrain === 'horizon' ? '还没有长期关联的任务' : '本周还没有大纲'}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{timeGrain === 'horizon' ? '在这里添加，或从本周把任务关联到长期。' : '粘贴笔记，或先加一个主题（例如发货、雅虎U9）。'}</p>
-            <Button type="button" size="sm" className="mt-3" onClick={() => setPasteOpen(true)}>粘贴本周笔记</Button>
+            <p className="text-sm font-medium">本周还没有任务</p>
+            <p className="mt-1 text-xs text-muted-foreground">点击上方「新增任务」开始。</p>
           </div>
         ) : (
           <div className="space-y-1">
-            {tree.map((node) => (
+            {rootTasks.map((node) => (
               <OutlineRow
                 key={node.id}
                 node={node}
@@ -239,6 +328,9 @@ export function WeekOutline({
                 adding={adding}
                 draft={draft}
                 saving={saving}
+                draggingId={draggingId}
+                dropTarget={dropTarget}
+                blockedDropIds={blockedDropIds}
                 onToggleCollapse={toggleCollapse}
                 onToggleDone={toggleDone}
                 onStartEdit={(todo) => { setEditingId(todo.id); setEditTitle(todo.title) }}
@@ -246,25 +338,22 @@ export function WeekOutline({
                 onSaveTitle={saveTitle}
                 onStartAdd={startAdd}
                 onDraft={setDraft}
-                onSubmitAdd={() => adding && void createNode({ title: draft, parentId: adding.parentId, kind: adding.kind })}
+                onSubmitAdd={() => adding && adding.kind !== 'note' && void createNode({ title: draft, parentId: adding.parentId, kind: adding.kind })}
                 onCancelAdd={() => { setAdding(null); setDraft('') }}
                 onPromote={onPromote}
-                onPinHorizon={onPinHorizon}
                 onSelect={onSelect}
+                onOpenNotes={onOpenNotes}
+                onDragStart={(id) => { setDraggingId(id); setDropTarget(null) }}
+                onDragOver={(next) => setDropTarget(next)}
+                onDrop={(id, next) => { void moveNode(id, next) }}
+                onDragEnd={clearDrag}
               />
             ))}
-            {adding && adding.parentId == null && (
-              <AddRow kind={adding.kind} value={draft} saving={saving} onChange={setDraft} onSubmit={() => void createNode({ title: draft, parentId: null, kind: adding.kind })} onCancel={() => { setAdding(null); setDraft('') }} />
-            )}
           </div>
         )}
       </div>
     </div>
   )
-}
-
-function countDrafts(nodes: ReturnType<typeof parseOutline>): number {
-  return nodes.reduce((sum, node) => sum + 1 + countDrafts(node.children), 0)
 }
 
 function OutlineRow({
@@ -275,6 +364,9 @@ function OutlineRow({
   adding,
   draft,
   saving,
+  draggingId,
+  dropTarget,
+  blockedDropIds,
   onToggleCollapse,
   onToggleDone,
   onStartEdit,
@@ -285,8 +377,12 @@ function OutlineRow({
   onSubmitAdd,
   onCancelAdd,
   onPromote,
-  onPinHorizon,
   onSelect,
+  onOpenNotes,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   node: OutlineTreeNode
   collapsed: Set<string>
@@ -295,6 +391,9 @@ function OutlineRow({
   adding: Adding | null
   draft: string
   saving: boolean
+  draggingId: string | null
+  dropTarget: DropTarget | null
+  blockedDropIds: Set<string>
   onToggleCollapse: (id: string) => void
   onToggleDone: (todo: OutlineTreeNode) => void
   onStartEdit: (todo: Todo) => void
@@ -305,21 +404,99 @@ function OutlineRow({
   onSubmitAdd: () => void
   onCancelAdd: () => void
   onPromote?: (todoId: string) => void
-  onPinHorizon?: (todoId: string) => void
   onSelect?: (todo: Todo) => void
+  onOpenNotes?: (todo: Todo) => void
+  onDragStart: (id: string) => void
+  onDragOver: (target: DropTarget) => void
+  onDrop: (sourceId: string, target: DropTarget) => void
+  onDragEnd: () => void
 }) {
-  const role = outlineRole(node)
-  const hasChildren = node.children.length > 0
-  const grouped = hasDescendantTasks(node)
-  const canCheck = role === 'task' && !grouped
+  const rowRef = useRef<HTMLDivElement>(null)
+  if (outlineRole(node) === 'note') return null
+
+  const taskChildren = outlineTaskChildren(node)
+  const hasChildren = taskChildren.length > 0
   const isCollapsed = collapsed.has(node.id)
   const progress = countOutlineProgress(node)
   const done = node.status === 'done'
-  const addingHere = adding?.parentId === node.id
+  const addingHere = adding?.parentId === node.id && adding.kind !== 'note'
+  const isDragging = draggingId === node.id
+  const isDropTarget = dropTarget?.id === node.id && draggingId != null && draggingId !== node.id
+  const dropPosition = isDropTarget ? dropTarget.position : null
+  const editing = editingId === node.id
+  const canDrag = !editing && !saving
+
+  const startDrag = (event: React.DragEvent<HTMLElement>) => {
+    if (!canDrag) {
+      event.preventDefault()
+      return
+    }
+    event.dataTransfer.setData(OUTLINE_DRAG_TYPE, node.id)
+    event.dataTransfer.setData('text/plain', node.id)
+    event.dataTransfer.effectAllowed = 'move'
+    if (rowRef.current) event.dataTransfer.setDragImage(rowRef.current, 24, 12)
+    onDragStart(node.id)
+  }
+
+  const handleDragOver = (event: React.DragEvent<HTMLElement>) => {
+    if (!draggingId || blockedDropIds.has(node.id)) return
+    const position = dropPositionFromEvent(event)
+    const newParentId = position === 'into' ? node.id : node.parentId
+    if (newParentId != null && blockedDropIds.has(newParentId)) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    onDragOver({ id: node.id, position })
+  }
+
+  const handleDrop = (event: React.DragEvent<HTMLElement>) => {
+    if (!draggingId || blockedDropIds.has(node.id)) return
+    event.preventDefault()
+    event.stopPropagation()
+    const position = dropPositionFromEvent(event)
+    const newParentId = position === 'into' ? node.id : node.parentId
+    if (newParentId != null && blockedDropIds.has(newParentId)) {
+      onDragEnd()
+      return
+    }
+    onDrop(draggingId, { id: node.id, position })
+    onDragEnd()
+  }
 
   return (
     <div>
-      <div className={cn('group flex items-start gap-1 rounded-md px-1 py-1 hover:bg-muted/50', (role === 'theme' || grouped) && 'mt-2 first:mt-0')}>
+      <div
+        ref={rowRef}
+        data-outline-row={node.id}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        className={cn(
+          'group relative flex items-start gap-1 rounded-md px-1 py-1 transition-colors',
+          hasChildren && 'mt-2 first:mt-0',
+          isDragging && 'opacity-40',
+          !isDropTarget && 'hover:bg-muted/50',
+          dropPosition === 'into' && 'bg-emerald-500/15 ring-1 ring-inset ring-emerald-400',
+        )}
+      >
+        {dropPosition === 'before' && (
+          <span className="pointer-events-none absolute inset-x-2 -top-0.5 z-10 h-0.5 rounded-full bg-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.35)]" />
+        )}
+        {dropPosition === 'after' && (
+          <span className="pointer-events-none absolute inset-x-2 -bottom-0.5 z-10 h-0.5 rounded-full bg-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.35)]" />
+        )}
+        <button
+          type="button"
+          draggable={canDrag}
+          aria-label={`拖拽调整 ${node.title}`}
+          onDragStart={startDrag}
+          onDragEnd={onDragEnd}
+          className={cn(
+            'mt-1 flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors',
+            canDrag && 'cursor-grab hover:bg-background hover:text-foreground active:cursor-grabbing group-hover:text-foreground',
+          )}
+        >
+          <GripVertical className="size-3.5" />
+        </button>
         {hasChildren ? (
           <button
             type="button"
@@ -327,32 +504,28 @@ function OutlineRow({
               event.stopPropagation()
               onToggleCollapse(node.id)
             }}
-            className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground"
+            className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
             aria-label={isCollapsed ? '展开' : '收起'}
           >
             <ChevronDown className={cn('size-3.5 transition-transform', isCollapsed && '-rotate-90')} />
           </button>
         ) : (
-          <span className="mt-0.5 size-6 shrink-0" />
+          <span className="size-6 shrink-0" />
         )}
-        {canCheck ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              onToggleDone(node)
-            }}
-            className="mt-0.5 flex size-6 shrink-0 items-center justify-center text-muted-foreground hover:text-emerald-600"
-            aria-label={done ? '标为未完成' : '标为完成'}
-          >
-            {done ? <Check className="size-4 text-emerald-600" /> : <Circle className="size-4" />}
-          </button>
-        ) : (
-          <span className="mt-0.5 size-6 shrink-0" />
-        )}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onToggleDone(node)
+          }}
+          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-emerald-600"
+          aria-label={done ? '标为未完成' : '标为完成'}
+        >
+          {done ? <Check className="size-4 text-emerald-600" /> : <Circle className="size-4" />}
+        </button>
         <div className="min-w-0 flex-1">
-          {editingId === node.id ? (
+          {editing ? (
             <Input
               value={editTitle}
               onChange={(event) => onEditTitle(event.target.value)}
@@ -364,7 +537,7 @@ function OutlineRow({
                 }
                 if (event.key === 'Escape') onStartEdit(node)
               }}
-              className="h-7 text-sm"
+              className="h-6 text-sm"
               autoFocus
             />
           ) : (
@@ -379,40 +552,57 @@ function OutlineRow({
                 onStartEdit(node)
               }}
               className={cn(
-                'block w-full text-left',
-                (role === 'theme' || grouped) && 'text-sm font-semibold',
-                role === 'task' && !grouped && 'text-sm',
-                role === 'note' && 'text-xs text-muted-foreground',
-                done && canCheck && 'text-muted-foreground line-through',
+                'flex min-h-6 w-full items-center rounded px-0.5 text-left text-sm leading-6 hover:text-foreground',
+                hasChildren && 'font-semibold',
+                done && 'text-muted-foreground line-through',
               )}
             >
               {node.title}
             </button>
           )}
-          {(role === 'theme' || grouped) && progress.total > 0 && (
-            <p className="text-[10px] tabular-nums text-muted-foreground">{progress.done}/{progress.total} 完成</p>
+          {hasChildren && progress.total > 0 && (
+            <p className="text-[10px] leading-4 tabular-nums text-muted-foreground">{progress.done}/{progress.total} 完成</p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          {role !== 'note' && (
-            <button type="button" onClick={() => onStartAdd(node.id, 'action')} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-background hover:text-foreground" title="挂一个衍生任务">
-              <Plus className="mr-0.5 inline size-3" />子任务
-            </button>
-          )}
-          {role === 'task' && (
-            <button type="button" onClick={() => onStartAdd(node.id, 'note')} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-background hover:text-foreground">备注</button>
-          )}
-          {onPromote && role === 'task' && !done && (
+        <div className="flex h-6 shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          <button type="button" onClick={() => onStartAdd(node.id, 'action')} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-background hover:text-foreground" title="挂一个衍生任务">
+            <Plus className="mr-0.5 inline size-3" />子任务
+          </button>
+          <button
+            type="button"
+            onClick={() => (onOpenNotes ?? onSelect)?.(node)}
+            className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-background hover:text-foreground"
+          >
+            备注
+          </button>
+          {onPromote && !done && (
             <button type="button" onClick={() => onPromote(node.id)} className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10">加入今天</button>
-          )}
-          {onPinHorizon && !hasTimeLink(node, 'horizon') && (
-            <button type="button" onClick={() => onPinHorizon(node.id)} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-background hover:text-foreground">长期</button>
           )}
         </div>
       </div>
       {!isCollapsed && (
-        <div className="ml-5 border-l border-dashed pl-2">
-          {node.children.map((child) => (
+        <div
+          className={cn(
+            'ml-5 border-l border-dashed pl-2 transition-colors',
+            dropPosition === 'into' && 'border-emerald-400 bg-emerald-500/5',
+          )}
+          onDragOver={(event) => {
+            if (!draggingId || blockedDropIds.has(node.id)) return
+            if ((event.target as HTMLElement).closest('[data-outline-row]')) return
+            event.preventDefault()
+            event.stopPropagation()
+            event.dataTransfer.dropEffect = 'move'
+            onDragOver({ id: node.id, position: 'into' })
+          }}
+          onDrop={(event) => {
+            if (!draggingId || blockedDropIds.has(node.id)) return
+            event.preventDefault()
+            event.stopPropagation()
+            onDrop(draggingId, { id: node.id, position: 'into' })
+            onDragEnd()
+          }}
+        >
+          {taskChildren.map((child) => (
             <OutlineRow
               key={child.id}
               node={child}
@@ -422,6 +612,9 @@ function OutlineRow({
               adding={adding}
               draft={draft}
               saving={saving}
+              draggingId={draggingId}
+              dropTarget={dropTarget}
+              blockedDropIds={blockedDropIds}
               onToggleCollapse={onToggleCollapse}
               onToggleDone={onToggleDone}
               onStartEdit={onStartEdit}
@@ -432,8 +625,12 @@ function OutlineRow({
               onSubmitAdd={onSubmitAdd}
               onCancelAdd={onCancelAdd}
               onPromote={onPromote}
-              onPinHorizon={onPinHorizon}
               onSelect={onSelect}
+              onOpenNotes={onOpenNotes}
+              onDragStart={onDragStart}
+              onDragOver={onDragOver}
+              onDrop={onDrop}
+              onDragEnd={onDragEnd}
             />
           ))}
           {addingHere && (
@@ -460,10 +657,10 @@ function AddRow({
   onSubmit: () => void
   onCancel: () => void
 }) {
-  const label = kind === 'note' ? '备注' : kind === 'action' ? '任务' : '主题'
+  const label = kind === 'note' ? '备注' : '任务'
   return (
     <form
-      className="flex items-center gap-2 py-1 pl-5"
+      className="flex items-center gap-2 py-1"
       onSubmit={(event) => {
         event.preventDefault()
         onSubmit()

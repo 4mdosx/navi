@@ -4,7 +4,6 @@ import { useMemo } from 'react'
 import { Activity, Clock3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Todo } from '@/types/todo'
-import type { PlanCheckIn } from '@/types/long-term-plan'
 import type { ExecutionActivity } from '@/types/execution'
 import {
   buildWeekList,
@@ -34,14 +33,12 @@ function formatMinutes(minutes: number) {
 
 export function TodoActivityView({
   todos,
-  checkIns = [],
   executionSessions = [],
   compact = false,
   selectedWeekStart,
   onWeekSelect,
 }: {
   todos: Todo[]
-  checkIns?: PlanCheckIn[]
   executionSessions?: ExecutionActivity[]
   compact?: boolean
   selectedWeekStart?: string
@@ -66,13 +63,6 @@ export function TodoActivityView({
       activity.set(key, ids)
     }
   }
-  for (const checkIn of checkIns) {
-    const key = dayKey(checkIn.checkedAt)
-    if (!visibleDayKeys.has(key)) continue
-    const ids = activity.get(key) ?? new Set<string>()
-    ids.add(checkIn.id)
-    activity.set(key, ids)
-  }
   for (const session of executionSessions) {
     const key = dayKey(session.startedAt)
     if (!visibleDayKeys.has(key)) continue
@@ -90,17 +80,13 @@ export function TodoActivityView({
       const timestamp = Date.parse(todo.completedAt ?? todo.updatedAt)
       return timestamp >= start && timestamp < end ? total + minutesSpent(todo) : total
     }, 0)
-    const checkInMinutes = checkIns.filter((checkIn) => {
-      const timestamp = Date.parse(checkIn.checkedAt)
-      return timestamp >= start && timestamp < end
-    }).length * 60
     const executionMinutes = executionSessions.reduce((total, session) => {
       const sessionStart = Date.parse(session.startedAt)
       if (sessionStart < start || sessionStart >= end) return total
       const sessionEnd = session.endedAt ? Date.parse(session.endedAt) : Date.now()
       return total + Math.max(1, Math.round((sessionEnd - sessionStart) / 60_000))
     }, 0)
-    return todoMinutes + checkInMinutes + executionMinutes
+    return todoMinutes + executionMinutes
   })
   const maxMinutes = Math.max(...weeklyMinutes, 1)
   const totalActivity = [...activity.values()].reduce((sum, ids) => sum + ids.size, 0)

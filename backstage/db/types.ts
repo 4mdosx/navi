@@ -34,19 +34,6 @@ export interface Database {
     grain: string
     date: string
   }
-  long_term_plans: {
-    id: string; sourceTodoId: string | null; title: string; description: string; status: string
-    cadence: string; scheduleMode: string; intervalWeeks: number; targetCount: number
-    stretchCount: number | null; preferredDays: string; estimatedMinutes: number
-    startDate: string; endDate: string | null; version: number; createdAt: string; updatedAt: string
-  }
-  plan_occurrences: {
-    id: string; planId: string; scheduledDate: string; status: string; actualMinutes: number | null
-    note: string; completedAt: string | null; createdAt: string; updatedAt: string
-  }
-  plan_check_ins: {
-    id: string; planId: string; weekStart: string; checkedAt: string; note: string
-  }
   work_items:{id:string;sourceType:string;sourceId:string;title:string;description:string;scheduledDate:string;queueOrder:number;priority:string;state:string;plannedMinutes:number;createdAt:string;updatedAt:string}
   execution_sessions:{id:string;workItemId:string;startedAt:string;endedAt:string|null;endReason:string|null;note:string}
 }

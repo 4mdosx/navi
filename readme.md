@@ -1,8 +1,8 @@
 # Navi
 
-独立的个人 Todo 服务：网页里管理本周 / 今天 / 长期任务，并通过 MCP 交给 Agent 操作。
+独立的个人 Todo 服务：网页里管理本周 / 今天，并通过 MCP 交给 Agent 操作。
 
-任务是独立记录。父子关系用 `parentId`，日 / 周 / 长期只是时间视图，不是三个文件夹。
+任务是独立记录。父子关系用 `parentId`，日 / 周只是时间视图，不是两个文件夹。
 
 ## 技术栈
 
@@ -60,7 +60,7 @@ TODO_GATEWAY_URL = "http://127.0.0.1:5500/api/todos/gateway"
 ```
 navi/
 ├── app/            # 页面与 API
-├── backstage/      # 服务层（todo、执行、长期计划、db）
+├── backstage/      # 服务层（todo、执行、db）
 ├── mcp/            # Todo MCP server
 ├── types/          # 共享类型
 └── components/     # UI 组件

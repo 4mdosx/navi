@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Circle, GripVertical, Maximize2, PanelLeft, Pencil, Play, Plus, Search, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Circle, GripVertical, PanelLeft, Pencil, Play, Plus, Search, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,7 +27,6 @@ import {
 import { formatWeekStartClient } from './week-plan-api'
 import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
 import type { Todo, TodoKind } from '@/types/todo'
-import type { LongTermPlanWithProgress, PlanOccurrence } from '@/types/long-term-plan'
 import type { ExecutionActivity } from '@/types/execution'
 import { TodoActivityView } from './todo-activity-view'
 import { TodoTimelineCalendar } from './todo-timeline-calendar'
@@ -1747,87 +1746,6 @@ function WeeklyControlPanel({
   )
 }
 
-function LongTermPlanPanel({ plans, onOccurrenceDone }: { plans: LongTermPlanWithProgress[]; onOccurrenceDone: (occurrence: PlanOccurrence) => void }) {
-  const today = new Date()
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  return (
-    <section className="rounded-lg border bg-card p-3">
-      <div className="mb-3"><h2 className="text-sm font-semibold">长期计划</h2><p className="mt-0.5 text-xs text-muted-foreground">计划定义节奏，每日节点记录实际执行</p></div>
-      <div className="space-y-2">
-        {plans.map((plan) => {
-          const todayOccurrence = plan.occurrences.find((item) => item.scheduledDate === todayKey)
-          const target = plan.targetCount
-          return (
-            <div key={plan.id} className="rounded-md border p-2.5">
-              <div className="flex items-start justify-between gap-2"><p className="text-xs font-medium">{plan.title}</p><span className="text-[10px] tabular-nums text-muted-foreground">{plan.cycleDone}/{target}{plan.stretchCount ? `–${plan.stretchCount}` : ''}</span></div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, plan.cycleDone / target * 100)}%` }} /></div>
-              <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground"><span>{plan.intervalWeeks > 1 ? `每 ${plan.intervalWeeks} 周` : '每周'}目标</span>{todayOccurrence && <button type="button" disabled={todayOccurrence.status === 'done'} onClick={() => onOccurrenceDone(todayOccurrence)} className="font-medium text-primary disabled:text-emerald-600">{todayOccurrence.status === 'done' ? '今日已完成' : '完成今日节点'}</button>}</div>
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-function AttentionFocusPanel({ todos, plans, onOpenOverview, onOccurrenceDone }: { todos: Todo[]; plans: LongTermPlanWithProgress[]; onOpenOverview: () => void; onOccurrenceDone: (occurrence: PlanOccurrence) => void }) {
-  const today = new Date()
-  const currentWeekStart = formatWeekStartClient(today)
-  const todayIndex = today.getDay()
-  const focused = todos
-    .filter((todo) => todo.status === 'active' || (
-      todo.placement === 'week_plan' && todo.weekStart === currentWeekStart &&
-      todo.dayIndex === todayIndex && todo.status !== 'done' && todo.status !== 'cancelled'
-    ))
-    .sort((a, b) => (a.status === 'active' ? -1 : b.status === 'active' ? 1 : a.sortOrder - b.sortOrder))
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  const planOccurrences = plans.flatMap((plan) => plan.occurrences.filter((item) => item.scheduledDate === todayKey && item.status !== 'done' && item.status !== 'skipped').map((item) => ({ plan, item })))
-
-  return (
-    <aside className="flex h-[calc(100svh-7rem)] min-h-0 flex-col overflow-hidden rounded-lg border bg-card p-3 xl:h-full" aria-label="当前焦点">
-      <div className="mb-3 flex items-start justify-between gap-2 border-b pb-3">
-        <div>
-          <h2 className="text-sm font-semibold">当前焦点</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">只显示进行中和今天已安排的任务</p>
-        </div>
-        <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={onOpenOverview}>
-          <Maximize2 className="size-3.5" />任务地图
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {focused.length > 0 || planOccurrences.length > 0 ? (
-          <ul className="space-y-2">
-            {focused.map((todo, index) => (
-              <li key={todo.id} className={cn('rounded-lg border p-3', todo.status === 'active' && 'border-sky-400 bg-sky-50/60 dark:bg-sky-950/20')}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-medium text-muted-foreground">{todo.status === 'active' ? '正在做' : index === 0 ? '今日优先' : '今天'}</span>
-                  <span className="text-[10px] text-muted-foreground">{formatEstimatedDuration(todo.estimatedMinutes / 60)}</span>
-                </div>
-                <p className="mt-1 text-sm font-medium">{todo.title}</p>
-                {todo.description && <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{todo.description}</p>}
-              </li>
-            ))}
-            {planOccurrences.map(({ plan, item }) => (
-              <li key={item.id} className="rounded-lg border border-violet-300 bg-violet-50/50 p-3 dark:bg-violet-950/20">
-                <div className="flex items-center justify-between gap-2"><span className="text-[10px] font-medium text-violet-700">长期计划 · 今日节点</span><span className="text-[10px] text-muted-foreground">{formatEstimatedDuration(plan.estimatedMinutes / 60)}</span></div>
-                <p className="mt-1 text-sm font-medium">{plan.title}</p>
-                <button type="button" onClick={() => onOccurrenceDone(item)} className="mt-2 text-[10px] font-medium text-primary hover:underline">标记今日完成</button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="rounded-lg border border-dashed px-4 py-10 text-center">
-            <p className="text-sm font-medium">今天还没有安排任务</p>
-            <p className="mt-1 text-xs text-muted-foreground">从任务地图拖入周计划，或在中间区域添加。</p>
-            <Button type="button" size="sm" variant="outline" className="mt-3" onClick={onOpenOverview}>打开任务地图</Button>
-          </div>
-        )}
-      </div>
-      <p className="mt-3 border-t pt-3 text-[10px] text-muted-foreground">默认隐藏 backlog、未来日期、等待条件和队列后续主题。</p>
-    </aside>
-  )
-}
-
 function WeekReviewSummary({ todos }: { todos: TodoItem[] }) {
   const relevant = todos.filter((todo) => todo.status !== 'cancelled')
   const done = relevant.filter((todo) => todo.status === 'done')
@@ -1858,7 +1776,6 @@ export default function WeekPlanPage() {
   const [isPendingDragOver, setIsPendingDragOver] = useState(false)
   const [allTodos, setAllTodos] = useState<Todo[]>([])
   const [todosReady, setTodosReady] = useState(false)
-  const [longTermPlans, setLongTermPlans] = useState<LongTermPlanWithProgress[]>([])
   const [executionActivity, setExecutionActivity] = useState<ExecutionActivity[]>([])
   const [overviewOpen, setOverviewOpen] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(false)
@@ -1911,16 +1828,6 @@ export default function WeekPlanPage() {
       .finally(() => setTodosReady(true))
   }, [])
 
-  const refreshLongTermPlans = useCallback(() => {
-    fetch('/api/long-term-plans', { credentials: 'include' })
-      .then(async (response) => {
-        const result = await response.json()
-        if (!response.ok || !result.success) throw new Error(result.error || '长期计划加载失败')
-        setLongTermPlans(result.data)
-      })
-      .catch(() => undefined)
-  }, [])
-
   const refreshExecutionActivity = useCallback(() => {
     const from = new Date()
     from.setDate(from.getDate() - 16 * 7)
@@ -1933,54 +1840,23 @@ export default function WeekPlanPage() {
       .catch(() => undefined)
   }, [])
 
-  const completeOccurrence = useCallback((occurrence: PlanOccurrence) => {
-    void fetch(`/api/long-term-plans/occurrences/${encodeURIComponent(occurrence.id)}`, {
-      method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'done' }),
-    }).then(() => refreshLongTermPlans())
-  }, [refreshLongTermPlans])
-
-  const checkInPlan = useCallback(async (planId: string) => {
-    const response = await fetch(`/api/long-term-plans/${encodeURIComponent(planId)}/check-ins`, {
-      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}',
-    })
-    const result = await response.json()
-    if (!response.ok || !result.success) throw new Error(result.error || '打卡失败')
-    refreshLongTermPlans()
-  }, [refreshLongTermPlans])
-
-  const changePlanTarget = useCallback(async (planId: string, targetCount: number) => {
-    const response = await fetch(`/api/long-term-plans/${encodeURIComponent(planId)}`, {
-      method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetCount }),
-    })
-    const result = await response.json()
-    if (!response.ok || !result.success) throw new Error(result.error || '每周目标更新失败')
-    refreshLongTermPlans()
-  }, [refreshLongTermPlans])
-
   useEffect(() => {
     refreshAllTodos()
   }, [todoVersionKey, pendingVersionKey, refreshAllTodos])
 
-  useEffect(() => { refreshLongTermPlans() }, [refreshLongTermPlans])
   useEffect(() => { refreshExecutionActivity() }, [refreshExecutionActivity])
 
   useEffect(() => {
     const toggleInsights = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      if (insightsOpen) {
-        event.preventDefault()
-        event.stopPropagation()
-        setInsightsOpen(false)
-        return
-      }
-      if (event.defaultPrevented) return
+      if (event.key !== 'Escape' || !event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return
       if (document.querySelector('[role="dialog"]:not(#todo-insights-drawer)')) return
       event.preventDefault()
-      setInsightsOpen(true)
+      event.stopPropagation()
+      setInsightsOpen((open) => !open)
     }
     document.addEventListener('keydown', toggleInsights, true)
     return () => document.removeEventListener('keydown', toggleInsights, true)
-  }, [insightsOpen])
+  }, [])
 
   const yearWeekLabel = useMemo(() => getYearWeekLabel(weekAnchor), [weekAnchor])
 
@@ -2068,15 +1944,19 @@ export default function WeekPlanPage() {
   )
 
   return (
-    <div className="mx-auto flex h-svh max-w-[90rem] flex-col overflow-hidden p-4 sm:p-6">
-      <header className="mb-4 flex shrink-0 items-center gap-3">
-        <h1 className="text-sm font-semibold">Navi</h1>
-        <button type="button" onClick={() => setInsightsOpen((open) => !open)} aria-expanded={insightsOpen} aria-controls="todo-insights-drawer" className="ml-auto inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-xs font-medium shadow-sm hover:bg-muted">
-          <PanelLeft className="size-3.5" />
-          周视图
-          <kbd className="ml-1 rounded border bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground">Esc</kbd>
-        </button>
-      </header>
+    <div className="h-svh pl-11">
+    <div className="relative mx-auto flex h-full max-w-[90rem] flex-col overflow-hidden p-4 sm:p-6">
+      <button
+        type="button"
+        onClick={() => setInsightsOpen((open) => !open)}
+        aria-expanded={insightsOpen}
+        aria-controls="todo-insights-drawer"
+        className="fixed left-0 top-1/2 z-50 flex -translate-y-1/2 flex-col items-center gap-1 rounded-r-xl border border-l-0 bg-card/95 px-1.5 py-3 text-xs font-medium shadow-sm backdrop-blur-sm hover:bg-muted"
+      >
+        <PanelLeft className="size-3.5" />
+        <span className="[writing-mode:vertical-rl]">周视图</span>
+        <kbd className="rounded border bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground [writing-mode:horizontal-tb]">⌥Esc</kbd>
+      </button>
 
       {loadError && (
         <div className="mb-4 shrink-0 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
@@ -2093,19 +1973,19 @@ export default function WeekPlanPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto xl:overflow-hidden">
         <section className="flex min-h-0 min-w-0 flex-col xl:h-full xl:overflow-hidden" aria-label="今日执行与任务地图">
-          <TodayExecutionCenter todos={allTodos} todosReady={todosReady} plans={longTermPlans} onPlanCheckIn={checkInPlan} onPlanTargetChange={changePlanTarget} onTodosChanged={refreshAllTodos} onExecutionChanged={refreshExecutionActivity} />
+          <TodayExecutionCenter todos={allTodos} todosReady={todosReady} onTodosChanged={refreshAllTodos} onExecutionChanged={refreshExecutionActivity} />
         </section>
       </div>
       <div className={cn('fixed inset-0 z-40 transition-[visibility] duration-300', !insightsOpen && 'pointer-events-none invisible')} aria-hidden={!insightsOpen}>
         <button type="button" tabIndex={insightsOpen ? 0 : -1} aria-label="收起周视图抽屉" onClick={() => setInsightsOpen(false)} className={cn('absolute inset-0 bg-black/20 backdrop-blur-[1px] transition-opacity duration-300 ease-out motion-reduce:transition-none', insightsOpen ? 'opacity-100' : 'opacity-0')} />
-        <aside id="todo-insights-drawer" role="dialog" aria-modal="true" aria-label="Todo 时间与周视图" inert={!insightsOpen} className={cn('absolute inset-y-0 left-0 z-10 flex w-[min(22rem,92vw)] flex-col border-r bg-background p-3 shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', insightsOpen ? 'translate-x-0' : '-translate-x-full')}>
+        <aside id="todo-insights-drawer" role="dialog" aria-modal="true" aria-label="Todo 时间与周视图" inert={!insightsOpen} className={cn('absolute inset-y-0 left-0 z-10 flex w-[min(22rem,92vw)] flex-col border-r bg-background py-3 pr-3 pl-12 shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', insightsOpen ? 'translate-x-0' : '-translate-x-full')}>
           <div className="mb-3 flex shrink-0 items-center justify-between border-b pb-3">
-            <div><h2 className="text-sm font-semibold">周视图与投入</h2><p className="mt-0.5 text-[10px] text-muted-foreground">按 Esc 收起或再次弹出</p></div>
+            <div><h2 className="text-sm font-semibold">周视图与投入</h2><p className="mt-0.5 text-[10px] text-muted-foreground">按 ⌥Esc 收起或再次弹出</p></div>
             <button type="button" onClick={() => setInsightsOpen(false)} aria-label="关闭抽屉" className="rounded-md border p-1.5 hover:bg-muted"><X className="size-4" /></button>
           </div>
           <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto">
             <TodoTimelineCalendar todos={allTodos} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
-            <TodoActivityView todos={allTodos} checkIns={longTermPlans.flatMap((plan) => plan.checkIns)} executionSessions={executionActivity} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
+            <TodoActivityView todos={allTodos} executionSessions={executionActivity} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
           </div>
         </aside>
       </div>
@@ -2130,6 +2010,7 @@ export default function WeekPlanPage() {
           />
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   )
 }

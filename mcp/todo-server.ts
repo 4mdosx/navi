@@ -24,7 +24,7 @@ const server = new McpServer(
   { name: 'navi-todo', version: '1.0.0' },
   {
     instructions:
-      'Navi Todo tasks are independent records. Associate them with parents via parentId and with day/week/horizon via time links. Day/week/long-term are views, not folders. Capture work as written, do not auto-split or invent estimates. Hang derived subtasks under the current parent. Read a todo before updating it and pass version on writes.',
+      'Navi Todo tasks are independent records. Associate them with parents via parentId and with day/week via time links. Day and week are views, not folders. Capture work as written, do not auto-split or invent estimates. Hang derived subtasks under the current parent. Read a todo before updating it and pass version on writes.',
   }
 )
 
@@ -112,7 +112,7 @@ server.registerTool('todo_import_outline', {
 }, async (args) => result(await gateway('todo.import_outline', args)))
 
 server.registerTool('todo_link_time', {
-  description: 'Associate an existing todo with a day, week, or long-term horizon. Does not move or copy the todo.',
+  description: 'Associate an existing todo with a day or week. Does not move or copy the todo.',
   inputSchema: {
     id: z.string().min(1),
     grain: timeGrain,
@@ -122,7 +122,7 @@ server.registerTool('todo_link_time', {
 }, async (args) => result(await gateway('todo.link_time', args)))
 
 server.registerTool('todo_unlink_time', {
-  description: 'Remove a day, week, or horizon association from a todo. The todo itself stays.',
+  description: 'Remove a day or week association from a todo. The todo itself stays.',
   inputSchema: {
     id: z.string().min(1),
     grain: timeGrain,
@@ -136,31 +136,6 @@ server.registerTool('todo_delete', {
   inputSchema: { id: z.string().min(1), cascade: z.boolean().default(false), confirm: z.literal(true) },
   annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
 }, async (args) => result(await gateway('todo.delete', args)))
-
-server.registerTool('long_term_plan_list', {
-  description: 'List long-term recurring plans and materialize their occurrences for the reference week.',
-  inputSchema: { referenceDate: z.string().optional() },
-  annotations: { readOnlyHint: true, openWorldHint: false },
-}, async (args) => result(await gateway('long_term_plan.list', args)))
-
-server.registerTool('long_term_plan_create', {
-  description: 'Create a long-term recurring plan. The plan is the rule; occurrences are generated execution nodes.',
-  inputSchema: {
-    sourceTodoId: z.string().nullable(), title: z.string().min(1), description: z.string(),
-    status: z.enum(['active', 'paused', 'done']).default('active'),
-    cadence: z.enum(['daily', 'weekly']), scheduleMode: z.enum(['fixed_days', 'weekly_quota']),
-    intervalWeeks: z.number().int().positive().default(1), targetCount: z.number().int().positive(),
-    stretchCount: z.number().int().positive().nullable(), preferredDays: z.array(z.number().int().min(0).max(6)),
-    estimatedMinutes: z.number().int().positive(), startDate: z.string(), endDate: z.string().nullable(),
-  },
-  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-}, async (args) => result(await gateway('long_term_plan.create', args)))
-
-server.registerTool('long_term_plan_update_occurrence', {
-  description: 'Update one generated long-term-plan occurrence.',
-  inputSchema: { id: z.string(), status: z.enum(['pending', 'active', 'done', 'skipped', 'missed']), note: z.string().optional() },
-  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-}, async (args) => result(await gateway('long_term_plan.update_occurrence', args)))
 
 async function main() {
   await server.connect(new StdioServerTransport())

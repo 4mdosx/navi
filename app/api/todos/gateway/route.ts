@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   createTodo, deleteTodo, getTodo, importOutline, linkTodoTime, listTodos, moveTodo, unlinkTodoTime, updateTodo, updateTodoContent,
 } from '@/backstage/todo/todo.service'
-import { createLongTermPlan, listLongTermPlans, updatePlanOccurrence } from '@/backstage/long-term-plan/long-term-plan.service'
 
 type GatewayBody = { requestId?: string; operation?: string; arguments?: Record<string, any> }
 
@@ -26,9 +25,6 @@ export async function POST(request: NextRequest) {
         await deleteTodo(String(args.id), args.cascade === true)
         data = { deleted: true }
         break
-      case 'long_term_plan.list': data = await listLongTermPlans(args.referenceDate); break
-      case 'long_term_plan.create': data = await createLongTermPlan(args as any); break
-      case 'long_term_plan.update_occurrence': data = await updatePlanOccurrence(String(args.id), args.status, args.note); break
       default: return NextResponse.json({ success: false, requestId: body.requestId, error: 'Unknown Todo operation' }, { status: 400 })
     }
     return NextResponse.json({ success: true, requestId: body.requestId, operation: body.operation, data })
