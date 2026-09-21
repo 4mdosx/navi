@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Circle, GripVertical, Plus } from 'lucide-react'
+import { ChevronDown, GripVertical, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import {
   buildOutlineTree,
   countOutlineProgress,
+  filterOutlineByStatuses,
   outlineRole,
   outlineTaskChildren,
   selectTimeOutline,
@@ -16,7 +17,16 @@ import {
   type OutlineTreeNode,
 } from '@/lib/todo-outline'
 import { formatDateKey, formatWeekStart } from '@/backstage/week-plan/week-utils'
-import { isNoteKind, isThemeKind, type TimeGrain, type Todo, type TodoKind } from '@/types/todo'
+import {
+  isNoteKind,
+  isThemeKind,
+  TODO_STATUSES,
+  type TimeGrain,
+  type Todo,
+  type TodoKind,
+  type TodoStatus,
+} from '@/types/todo'
+import { StatusFilterButton, StatusPicker } from './todo-status'
 
 type Adding = { parentId: string | null; kind: TodoKind }
 type DropPosition = 'before' | 'after' | 'into'
@@ -60,12 +70,17 @@ export function WeekOutline({
   const [error, setError] = useState<string | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
+  const [statusFilter, setStatusFilter] = useState<Set<TodoStatus>>(() => new Set(TODO_STATUSES))
   const todayKey = formatDateKey(new Date())
   const resolvedWeekStart = weekStart || formatWeekStart(new Date())
   const anchorDate = timeGrain === 'week' ? resolvedWeekStart : todayKey
-  const visible = useMemo(
+  const weekTodos = useMemo(
     () => selectTimeOutline(todos ?? [], timeGrain, anchorDate),
     [todos, timeGrain, anchorDate],
+  )
+  const visible = useMemo(
+    () => filterOutlineByStatuses(weekTodos, statusFilter),
+    [weekTodos, statusFilter],
   )
   const tree = useMemo(() => buildOutlineTree(visible), [visible])
 
@@ -120,14 +135,14 @@ export function WeekOutline({
     }
   }
 
-  const toggleDone = async (todo: OutlineTreeNode) => {
-    if (isNoteKind(todo.kind)) return
+  const changeStatus = async (todo: OutlineTreeNode, status: TodoStatus) => {
+    if (isNoteKind(todo.kind) || todo.status === status) return
     try {
       await request(`/api/todos/${encodeURIComponent(todo.id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          status: todo.status === 'done' ? 'pending' : 'done',
+          status,
           version: todo.version,
           ...(isThemeKind(todo.kind) ? { kind: 'action' as const } : {}),
         }),
@@ -256,18 +271,27 @@ export function WeekOutline({
     return () => window.removeEventListener('dragend', onWindowDragEnd)
   }, [])
 
-  useEffect(() => {
-    const onWindowDragEnd = () => clearDrag()
-    window.addEventListener('dragend', onWindowDragEnd)
-    return () => window.removeEventListener('dragend', onWindowDragEnd)
-  }, [])
-
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {error && <p className="shrink-0 px-3 py-2 text-xs text-destructive">{error}</p>}
 
+      <div className="flex shrink-0 items-center gap-1.5 px-3 pt-3">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          onClick={() => startAdd(null, 'action')}
+          disabled={saving || (addingRoot && Boolean(adding))}
+        >
+          <Plus className="size-3.5" />
+          新增任务
+        </Button>
+        <StatusFilterButton selected={statusFilter} onChange={setStatusFilter} />
+      </div>
+
       <div
-        className="min-h-0 flex-1 overflow-y-auto p-3"
+        className="min-h-0 flex-1 overflow-y-auto p-3 pt-2"
         onDragOver={(event) => {
           if (!draggingId || rootTasks.length === 0) return
           if ((event.target as HTMLElement).closest('[data-outline-row]')) return
@@ -282,20 +306,6 @@ export function WeekOutline({
           clearDrag()
         }}
       >
-        <div className="mb-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 gap-1 px-2 text-[11px]"
-            onClick={() => startAdd(null, 'action')}
-            disabled={saving || (addingRoot && Boolean(adding))}
-          >
-            <Plus className="size-3.5" />
-            新增任务
-          </Button>
-        </div>
-
         {addingRoot && adding && adding.kind !== 'note' && (
           <div className="mb-2">
             <AddRow
@@ -311,10 +321,15 @@ export function WeekOutline({
 
         {!ready ? (
           <div className="rounded-lg border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">加载本周大纲…</div>
-        ) : rootTasks.length === 0 && !adding ? (
+        ) : weekTodos.filter((todo) => outlineRole(todo) === 'task' && !todo.parentId).length === 0 && !adding ? (
           <div className="rounded-lg border border-dashed px-4 py-12 text-center">
             <p className="text-sm font-medium">本周还没有任务</p>
             <p className="mt-1 text-xs text-muted-foreground">点击上方「新增任务」开始。</p>
+          </div>
+        ) : rootTasks.length === 0 ? (
+          <div className="rounded-lg border border-dashed px-4 py-12 text-center">
+            <p className="text-sm font-medium">没有符合筛选的任务</p>
+            <p className="mt-1 text-xs text-muted-foreground">调整过滤状态后再看。</p>
           </div>
         ) : (
           <div className="space-y-1">
@@ -332,7 +347,7 @@ export function WeekOutline({
                 dropTarget={dropTarget}
                 blockedDropIds={blockedDropIds}
                 onToggleCollapse={toggleCollapse}
-                onToggleDone={toggleDone}
+                onChangeStatus={changeStatus}
                 onStartEdit={(todo) => { setEditingId(todo.id); setEditTitle(todo.title) }}
                 onEditTitle={setEditTitle}
                 onSaveTitle={saveTitle}
@@ -368,7 +383,7 @@ function OutlineRow({
   dropTarget,
   blockedDropIds,
   onToggleCollapse,
-  onToggleDone,
+  onChangeStatus,
   onStartEdit,
   onEditTitle,
   onSaveTitle,
@@ -395,7 +410,7 @@ function OutlineRow({
   dropTarget: DropTarget | null
   blockedDropIds: Set<string>
   onToggleCollapse: (id: string) => void
-  onToggleDone: (todo: OutlineTreeNode) => void
+  onChangeStatus: (todo: OutlineTreeNode, status: TodoStatus) => void
   onStartEdit: (todo: Todo) => void
   onEditTitle: (title: string) => void
   onSaveTitle: (todo: Todo) => void
@@ -418,7 +433,6 @@ function OutlineRow({
   const hasChildren = taskChildren.length > 0
   const isCollapsed = collapsed.has(node.id)
   const progress = countOutlineProgress(node)
-  const done = node.status === 'done'
   const addingHere = adding?.parentId === node.id && adding.kind !== 'note'
   const isDragging = draggingId === node.id
   const isDropTarget = dropTarget?.id === node.id && draggingId != null && draggingId !== node.id
@@ -512,18 +526,12 @@ function OutlineRow({
         ) : (
           <span className="size-6 shrink-0" />
         )}
-        <button
-          type="button"
-          onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            onToggleDone(node)
-          }}
-          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-emerald-600"
-          aria-label={done ? '标为未完成' : '标为完成'}
-        >
-          {done ? <Check className="size-4 text-emerald-600" /> : <Circle className="size-4" />}
-        </button>
+        <StatusPicker
+          compact
+          status={node.status}
+          disabled={saving}
+          onChange={(status) => onChangeStatus(node, status)}
+        />
         <div className="min-w-0 flex-1">
           {editing ? (
             <Input
@@ -554,7 +562,7 @@ function OutlineRow({
               className={cn(
                 'flex min-h-6 w-full items-center rounded px-0.5 text-left text-sm leading-6 hover:text-foreground',
                 hasChildren && 'font-semibold',
-                done && 'text-muted-foreground line-through',
+                (node.status === 'done' || node.status === 'cancelled') && 'text-muted-foreground line-through',
               )}
             >
               {node.title}
@@ -575,7 +583,7 @@ function OutlineRow({
           >
             备注
           </button>
-          {onPromote && !done && (
+          {onPromote && node.status !== 'done' && node.status !== 'cancelled' && (
             <button type="button" onClick={() => onPromote(node.id)} className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10">加入今天</button>
           )}
         </div>
@@ -616,7 +624,7 @@ function OutlineRow({
               dropTarget={dropTarget}
               blockedDropIds={blockedDropIds}
               onToggleCollapse={onToggleCollapse}
-              onToggleDone={onToggleDone}
+              onChangeStatus={onChangeStatus}
               onStartEdit={onStartEdit}
               onEditTitle={onEditTitle}
               onSaveTitle={onSaveTitle}

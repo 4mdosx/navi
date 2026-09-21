@@ -27,6 +27,7 @@ export interface Database {
     completedAt: string | null
     createdAt: string
     updatedAt: string
+    noteType: string
   }
   todo_time_links: {
     id: string

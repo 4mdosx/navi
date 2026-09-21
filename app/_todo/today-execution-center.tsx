@@ -1,16 +1,17 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, CornerUpLeft, Pause, Play, Plus } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, CornerUpLeft, Pause, Play, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { isNoteKind, type Todo } from '@/types/todo'
+import { isEditableNote, isNoteKind, isStatusChangeNote, TODO_STATUS_LABEL, type Todo, type TodoStatus } from '@/types/todo'
 import type { TodayExecution, WorkItem } from '@/types/execution'
 import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
 import { noteChildrenOf } from '@/lib/todo-outline'
 import { formatWeekStartClient } from './week-plan-api'
 import { WeekOutline } from './week-outline'
+import { StatusChips } from './todo-status'
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 
@@ -132,7 +133,7 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
       title: todo.title,
       description: todo.description,
       plannedMinutes: todo.estimatedMinutes,
-      meta: parent ? `属于：${parent} · ${state ?? todo.status}` : `${todo.kind} · ${state ?? todo.status}`,
+      meta: parent ? `属于：${parent}` : undefined,
       todoId: todo.id,
     })
   }
@@ -173,6 +174,7 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
         title: noteDraft.trim(),
         parentId: selectedTodo.id,
         kind: 'note',
+        noteType: 'user',
         estimatedMinutes: 0,
       }),
     })
@@ -182,6 +184,7 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
     onTodosChanged()
   }
   const updateNote = async (note: Todo, title: string) => {
+    if (!isEditableNote(note)) return
     const nextTitle = title.trim()
     setEditingNoteId(null)
     if (!nextTitle || nextTitle === note.title) return
@@ -193,6 +196,28 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
     })
     const result = await response.json()
     if (!response.ok || !result.success) throw new Error(result.error || '备注更新失败')
+    onTodosChanged()
+  }
+  const deleteNote = async (note: Todo) => {
+    if (!isEditableNote(note)) return
+    const response = await fetch(`/api/todos/${encodeURIComponent(note.id)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    const result = await response.json()
+    if (!response.ok || !result.success) throw new Error(result.error || '备注删除失败')
+    onTodosChanged()
+  }
+  const changeStatus = async (todo: Todo, status: TodoStatus) => {
+    if (todo.status === status) return
+    const response = await fetch(`/api/todos/${encodeURIComponent(todo.id)}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, version: todo.version }),
+    })
+    const result = await response.json()
+    if (!response.ok || !result.success) throw new Error(result.error || '状态更新失败')
     onTodosChanged()
   }
   const openNotes = (todo: Todo) => {
@@ -272,6 +297,8 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
           onAddDerived={addDerived}
           onAddNote={addNote}
           onUpdateNote={updateNote}
+          onDeleteNote={deleteNote}
+          onChangeStatus={changeStatus}
         />
       ) : (
         <p className="mt-3 text-xs text-muted-foreground">选择任务后在这里查看详情。</p>
@@ -311,6 +338,8 @@ function TaskDetailPanel({
   onAddDerived,
   onAddNote,
   onUpdateNote,
+  onDeleteNote,
+  onChangeStatus,
 }: {
   selected: Detail
   selectedTodo: Todo | null | undefined
@@ -333,6 +362,8 @@ function TaskDetailPanel({
   onAddDerived: () => Promise<void>
   onAddNote: () => Promise<void>
   onUpdateNote: (note: Todo, title: string) => Promise<void>
+  onDeleteNote: (note: Todo) => Promise<void>
+  onChangeStatus: (todo: Todo, status: TodoStatus) => Promise<void>
 }) {
   const noteInputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -364,6 +395,12 @@ function TaskDetailPanel({
         </button>
       )}
       <p className="font-medium">{selected.title}</p>
+      {selectedTodo && (
+        <div className="mt-2">
+          <p className="mb-1 text-[10px] text-muted-foreground">状态</p>
+          <StatusChips status={selectedTodo.status} onChange={(status) => void onChangeStatus(selectedTodo, status)} />
+        </div>
+      )}
       {selected.meta && <p className="mt-1 text-[10px] text-muted-foreground">{selected.meta}</p>}
       <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{selected.description || '暂无描述'}</p>
       {selected.plannedMinutes > 0 && <p className="mt-3 text-xs">预计 {selected.plannedMinutes} 分钟</p>}
@@ -373,16 +410,34 @@ function TaskDetailPanel({
           <div className="mb-2 flex items-center justify-between">
             <div>
               <h3 className="text-xs font-semibold">备注</h3>
-              <p className="text-[9px] text-muted-foreground">按时间追加，不出现在任务主视图</p>
+              <p className="text-[9px] text-muted-foreground">用户备注可编辑；状态变更会自动留下一条不可改的记录</p>
             </div>
             <span className="text-[10px] text-muted-foreground">{selectedNotes.length} 条</span>
           </div>
           {selectedNotes.length > 0 ? (
             <div className="space-y-2">
-              {selectedNotes.map((note) => (
-                <div key={note.id} className="rounded-md border bg-muted/30 px-2 py-1.5">
-                  <p className="text-[9px] tabular-nums text-muted-foreground">{formatNoteTime(note.createdAt)}</p>
-                  {editingNoteId === note.id ? (
+              {selectedNotes.map((note) => {
+                const locked = isStatusChangeNote(note)
+                return (
+                <div key={note.id} className={cn('rounded-md border px-2 py-1.5', locked ? 'bg-muted/50' : 'bg-muted/30')}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[9px] tabular-nums text-muted-foreground">{formatNoteTime(note.createdAt)}</p>
+                    {locked ? (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">状态变更</span>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label="删除备注"
+                        onClick={() => void onDeleteNote(note)}
+                        className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                  {locked ? (
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{note.title}</p>
+                  ) : editingNoteId === note.id ? (
                     <Input
                       value={editingNoteText}
                       onChange={(event) => onEditingNoteText(event.target.value)}
@@ -410,7 +465,8 @@ function TaskDetailPanel({
                     </button>
                   )}
                 </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <p className="text-[10px] text-muted-foreground">暂无备注</p>
@@ -455,7 +511,7 @@ function TaskDetailPanel({
                   <span className="w-5 text-center text-[10px] font-medium tabular-nums text-muted-foreground">{index + 1}</span>
                   <button type="button" onClick={() => onSelectTodo(child)} className="min-w-0 flex-1 px-1 text-left">
                     <span className="block truncate text-xs font-medium">{child.title}</span>
-                    <span className="block text-[9px] text-muted-foreground">{child.status} · {child.estimatedMinutes} 分钟</span>
+                    <span className="block text-[9px] text-muted-foreground">{TODO_STATUS_LABEL[child.status]} · {child.estimatedMinutes} 分钟</span>
                   </button>
                   <div className="flex shrink-0">
                     <button type="button" aria-label={`提高 ${child.title} 的优先级`} disabled={index === 0 || reordering} onClick={() => void onMoveChild(index, -1)} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-25">

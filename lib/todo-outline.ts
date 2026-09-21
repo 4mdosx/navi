@@ -1,12 +1,13 @@
-import { shiftWeekStart, formatWeekStart } from '@/backstage/week-plan/week-utils'
+import { shiftWeekStart, formatWeekStart, formatDateKey } from '@/backstage/week-plan/week-utils'
 import {
   hasTimeLink,
+  isCarryTodoStatus,
   isNoteKind,
-  isOpenTodoStatus,
   todoTimeLinks,
   type TimeGrain,
   type Todo,
   type TodoKind,
+  type TodoStatus,
 } from '@/types/todo'
 
 export type OutlineDraft = {
@@ -126,15 +127,25 @@ export function parseOutline(text: string): OutlineDraft[] {
   return parseRawTree(text).map((node) => toDraft(node, true))
 }
 
-function dateKey(iso: string | null | undefined): string | null {
-  return iso ? iso.slice(0, 10) : null
+function localDateKey(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso.slice(0, 10)
+  return formatDateKey(date)
 }
 
 function inWeek(iso: string | null | undefined, weekStart: string): boolean {
-  const key = dateKey(iso)
+  const key = localDateKey(iso)
   if (!key) return false
   const weekEnd = shiftWeekStart(weekStart, 1)
   return key >= weekStart && key < weekEnd
+}
+
+function belongsToWeek(todo: Todo, weekStart: string): boolean {
+  return hasTimeLink(todo, 'week', weekStart)
+    || todoTimeLinks(todo).some((link) => link.grain === 'day' && inWeek(link.date, weekStart))
+    || todo.weekStart === weekStart
 }
 
 export function selectWeekOutline(todos: Todo[], weekStart: string): Todo[] {
@@ -145,21 +156,40 @@ export function selectWeekOutline(todos: Todo[], weekStart: string): Todo[] {
   const visible = new Set<string>()
 
   for (const todo of list) {
-    if (todo.status === 'cancelled') continue
-    const createdKey = dateKey(todo.createdAt)
-    if (isOpenTodoStatus(todo.status) && createdKey && createdKey >= weekEnd) continue
+    if (todo.kind === 'note') continue
+    const createdKey = localDateKey(todo.createdAt)
+    if (createdKey && createdKey >= weekEnd) continue
 
-    const linkedThisWeek = hasTimeLink(todo, 'week', weekStart)
-      || todoTimeLinks(todo).some((link) => link.grain === 'day' && inWeek(link.date, weekStart))
-      || todo.weekStart === weekStart
     const createdInWeek = inWeek(todo.createdAt, weekStart)
-    const completedThisWeek = todo.status === 'done' && inWeek(todo.completedAt, weekStart)
-    const openCarry = isCurrentWeek && isOpenTodoStatus(todo.status)
+    if (createdInWeek) {
+      visible.add(todo.id)
+      continue
+    }
 
-    if (linkedThisWeek || completedThisWeek || createdInWeek || openCarry) visible.add(todo.id)
+    if (todo.status === 'done') {
+      if (inWeek(todo.completedAt ?? todo.updatedAt, weekStart)) visible.add(todo.id)
+      continue
+    }
+
+    if (!isCarryTodoStatus(todo.status)) continue
+    if (isCurrentWeek || belongsToWeek(todo, weekStart)) visible.add(todo.id)
   }
 
-  return withAncestorsAndNotes(list, visible, byId)
+  withAncestors(list, visible, byId)
+  return withNotesOfVisible(list, visible)
+}
+
+export function filterOutlineByStatuses(todos: Todo[], statuses: ReadonlySet<TodoStatus>): Todo[] {
+  const list = todos.filter(Boolean)
+  if (statuses.size === 0) return []
+  const byId = new Map(list.map((todo) => [todo.id, todo]))
+  const visible = new Set<string>()
+  for (const todo of list) {
+    if (todo.kind === 'note') continue
+    if (statuses.has(todo.status)) visible.add(todo.id)
+  }
+  withAncestors(list, visible, byId)
+  return withNotesOfVisible(list, visible)
 }
 
 export function selectLinkedOutline(todos: Todo[], grain: TimeGrain, date?: string): Todo[] {
@@ -178,7 +208,7 @@ export function selectTimeOutline(todos: Todo[], grain: TimeGrain, date: string)
   return selectLinkedOutline(todos, grain, grain === 'horizon' ? undefined : date)
 }
 
-function withAncestorsAndNotes(
+function withAncestors(
   todos: Todo[],
   visible: Set<string>,
   byId: Map<string, Todo>,
@@ -190,7 +220,22 @@ function withAncestorsAndNotes(
       parentId = byId.get(parentId)?.parentId ?? null
     }
   }
+  return todos.filter((todo) => visible.has(todo.id))
+}
 
+function withNotesOfVisible(todos: Todo[], visible: Set<string>): Todo[] {
+  for (const todo of todos) {
+    if (todo.kind === 'note' && todo.parentId && visible.has(todo.parentId)) visible.add(todo.id)
+  }
+  return todos.filter((todo) => visible.has(todo.id))
+}
+
+function withAncestorsAndNotes(
+  todos: Todo[],
+  visible: Set<string>,
+  byId: Map<string, Todo>,
+): Todo[] {
+  withAncestors(todos, visible, byId)
   let added = true
   while (added) {
     added = false
@@ -202,7 +247,6 @@ function withAncestorsAndNotes(
       }
     }
   }
-
   return todos.filter((todo) => visible.has(todo.id))
 }
 

@@ -46,7 +46,8 @@ export function migrateTodoDomain(sqlite: Database.Database): void {
       startedAt TEXT,
       completedAt TEXT,
       createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
+      updatedAt TEXT NOT NULL,
+      noteType TEXT NOT NULL DEFAULT 'user'
     );
     CREATE INDEX IF NOT EXISTS idx_todos_parent_sort ON todos(parentId, sortOrder);
     CREATE INDEX IF NOT EXISTS idx_todos_placement_week ON todos(placement, weekStart, dayIndex);
@@ -57,6 +58,7 @@ export function migrateTodoDomain(sqlite: Database.Database): void {
   if (!todoColumns.has('kind')) sqlite.exec("ALTER TABLE todos ADD COLUMN kind TEXT NOT NULL DEFAULT 'action'")
   if (!todoColumns.has('reviewAt')) sqlite.exec('ALTER TABLE todos ADD COLUMN reviewAt TEXT')
   if (!todoColumns.has('activationCondition')) sqlite.exec("ALTER TABLE todos ADD COLUMN activationCondition TEXT NOT NULL DEFAULT ''")
+  if (!todoColumns.has('noteType')) sqlite.exec("ALTER TABLE todos ADD COLUMN noteType TEXT NOT NULL DEFAULT 'user'")
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_todos_kind_review ON todos(kind, reviewAt)')
 
   sqlite.exec(`

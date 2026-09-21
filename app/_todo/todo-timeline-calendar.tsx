@@ -24,10 +24,10 @@ const STATUS_BAR_COLOR: Record<(typeof STATUS_ORDER)[number], string> = {
 }
 
 const STATUS_LABEL: Record<(typeof STATUS_ORDER)[number], string> = {
-  done: '已完成',
+  done: '完成',
   active: '进行中',
-  blocked: '阻塞',
-  pending: '待开始',
+  blocked: '冻结',
+  pending: '待办',
 }
 
 function sameWeek(timestamp: string | null, weekStart: Date) {
@@ -230,7 +230,7 @@ export function TodoTimelineCalendar({
               <div key={todo.id} className="flex border-b last:border-b-0">
                 <div className="sticky left-0 z-10 w-56 shrink-0 border-r bg-card px-4 py-3">
                   <p className="truncate text-sm font-medium" title={todo.title}>{todo.title}</p>
-                  <p className="mt-1 text-[10px] text-muted-foreground">{todo.estimatedMinutes} 分钟 · {todo.status === 'done' ? '已完成' : todo.status === 'active' ? '进行中' : todo.status === 'blocked' ? '阻塞' : '待开始'}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">{todo.estimatedMinutes} 分钟 · {todo.status === 'done' ? '完成' : todo.status === 'active' ? '进行中' : todo.status === 'blocked' ? '冻结' : todo.status === 'cancelled' ? '放弃' : '待办'}</p>
                 </div>
                 {pageWeeks.map((week) => {
                   const timestamp = week.getTime()

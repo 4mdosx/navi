@@ -4,13 +4,14 @@ import { getDatabase } from '@/backstage/db/database'
 import { parseOutline, type OutlineDraft } from '@/lib/todo-outline'
 import { dateFromWeekDay } from '@/backstage/week-plan/week-utils'
 import type {
-  CreateTodoInput, TimeGrain, Todo, TodoKind, TodoPlacement, TodoStatus, TodoTimeLink, UpdateTodoInput,
+  CreateTodoInput, TimeGrain, Todo, TodoKind, TodoNoteType, TodoPlacement, TodoStatus, TodoTimeLink, UpdateTodoInput,
 } from '@/types/todo'
-import { isTimeGrain } from '@/types/todo'
+import { isTimeGrain, isTodoNoteType, TODO_STATUS_LABEL } from '@/types/todo'
 
 const STATUSES = new Set<TodoStatus>(['active', 'pending', 'blocked', 'done', 'cancelled'])
 const PLACEMENTS = new Set<TodoPlacement>(['backlog', 'week_plan'])
 const KINDS = new Set<TodoKind>(['direction', 'outcome', 'action', 'habit', 'note'])
+const NOTE_TYPES = new Set<TodoNoteType>(['user', 'status_change'])
 const MAX_DEPTH = 6
 
 type TodoRow = {
@@ -20,7 +21,7 @@ type TodoRow = {
   activationCondition: string; hour: number
   dayIndex: number | null; weekStart: string | null; version: number
   startedAt: string | null; completedAt: string | null
-  createdAt: string; updatedAt: string
+  createdAt: string; updatedAt: string; noteType?: string
 }
 
 function mapTodo(row: TodoRow, timeLinks: TodoTimeLink[] = []): Todo {
@@ -30,6 +31,7 @@ function mapTodo(row: TodoRow, timeLinks: TodoTimeLink[] = []): Todo {
     placement: PLACEMENTS.has(row.placement as TodoPlacement)
       ? row.placement as TodoPlacement : 'backlog',
     kind: KINDS.has(row.kind as TodoKind) ? row.kind as TodoKind : 'action',
+    noteType: isTodoNoteType(row.noteType ?? '') ? row.noteType as TodoNoteType : 'user',
     timeLinks,
   }
 }
@@ -112,9 +114,11 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
   const now = new Date().toISOString()
   const id = `todo-${Date.now()}-${nanoid(8)}`
   const status = input.status && STATUSES.has(input.status) ? input.status : 'pending'
+  const kind = input.kind && KINDS.has(input.kind) ? input.kind : (parent ? 'action' : 'outcome')
+  const noteType = kind === 'note' && input.noteType && NOTE_TYPES.has(input.noteType) ? input.noteType : 'user'
   const parentTodo = input.parentId ? await getTodo(input.parentId) : null
   const time = normalizeTimeInput(input)
-  if (parentTodo) {
+  if (parentTodo && kind !== 'note') {
     for (const link of parentTodo.timeLinks ?? []) {
       if (!time.some((item) => item.grain === link.grain && item.date === link.date)) {
         time.push({ grain: link.grain, date: link.date })
@@ -134,7 +138,8 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
     status,
     estimatedMinutes: Math.max(0, Math.round(input.estimatedMinutes ?? 0)),
     placement: input.placement ?? 'backlog',
-    kind: input.kind && KINDS.has(input.kind) ? input.kind : (parent ? 'action' : 'outcome'),
+    kind,
+    noteType,
     reviewAt: input.reviewAt ?? null,
     activationCondition: input.activationCondition?.trim() ?? '',
     hour: Math.max(1, Math.round(input.hour ?? 1)),
@@ -197,6 +202,12 @@ export async function updateTodo(id: string, input: UpdateTodoInput): Promise<To
   if (input.version != null && input.version !== current.version) {
     throw new Error(`Todo version conflict: expected ${input.version}, actual ${current.version}`)
   }
+  if (current.kind === 'note' && current.noteType === 'status_change') {
+    const locked = ['title', 'description', 'content', 'status', 'kind', 'noteType'] as const
+    if (locked.some((field) => input[field] != null && input[field] !== current[field])) {
+      throw new Error('Status change notes cannot be edited')
+    }
+  }
   const now = new Date().toISOString()
   const updates: Record<string, unknown> = { updatedAt: now, version: current.version + 1 }
   if (input.title != null) {
@@ -217,14 +228,30 @@ export async function updateTodo(id: string, input: UpdateTodoInput): Promise<To
   if (input.dayIndex !== undefined) updates.dayIndex = input.dayIndex
   if (input.weekStart !== undefined) updates.weekStart = input.weekStart
   if (input.sortOrder != null) updates.sortOrder = input.sortOrder
-  if (input.status != null) {
-    updates.status = input.status
-    if (input.status === 'active' && !current.startedAt) updates.startedAt = now
-    if (input.status === 'done') updates.completedAt = now
+  if (input.noteType != null) {
+    if (!NOTE_TYPES.has(input.noteType)) throw new Error(`Invalid note type: ${input.noteType}`)
+    updates.noteType = input.noteType
+  }
+  const nextStatus = input.status != null && STATUSES.has(input.status) ? input.status : null
+  const statusChanged = nextStatus != null && nextStatus !== current.status
+  if (nextStatus != null) {
+    updates.status = nextStatus
+    if (nextStatus === 'active' && !current.startedAt) updates.startedAt = now
+    if (nextStatus === 'done') updates.completedAt = now
     else if (current.status === 'done') updates.completedAt = null
   }
   const db = await getDatabase()
   await db.updateTable('todos').set(updates).where('id', '=', id).where('version', '=', current.version).execute()
+  if (statusChanged && current.kind !== 'note' && current.depth < MAX_DEPTH) {
+    await createTodo({
+      title: `状态变更：${TODO_STATUS_LABEL[current.status]} → ${TODO_STATUS_LABEL[nextStatus!]}`,
+      parentId: id,
+      kind: 'note',
+      noteType: 'status_change',
+      estimatedMinutes: 0,
+      sortOrder: await nextSortOrder(id),
+    })
+  }
   return getTodo(id)
 }
 
@@ -281,7 +308,10 @@ export async function moveTodo(id: string, input: {
 }
 
 export async function deleteTodo(id: string, cascade = false): Promise<void> {
-  await getTodo(id)
+  const current = await getTodo(id)
+  if (current.kind === 'note' && current.noteType === 'status_change') {
+    throw new Error('Status change notes cannot be deleted')
+  }
   const db = await getDatabase()
   const child = await db.selectFrom('todos').select('id').where('parentId', '=', id).executeTakeFirst()
   if (child && !cascade) throw new Error('Todo has children; cascade is required')

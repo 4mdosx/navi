@@ -54,10 +54,10 @@ const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周�
 
 const TODO_FILTER_LABELS: Record<Todo['status'], string> = {
   active: '进行中',
-  pending: '待开始',
-  blocked: '阻塞',
-  done: '已完成',
-  cancelled: '已取消',
+  pending: '待办',
+  blocked: '冻结',
+  done: '完成',
+  cancelled: '放弃',
 }
 
 const PLACEMENT_FILTER_LABELS = {
@@ -641,11 +641,11 @@ function TodoDetailDialog({
               <p className="text-sm">{TODO_FILTER_LABELS[status]}</p>
             ) : (
               <select id="todo-status" value={status} onChange={(event) => setStatus(event.target.value as TodoItem['status'])} className="h-10 rounded-md border border-neutral-200 bg-background px-3 text-sm dark:border-neutral-800">
-                <option value="pending">待处理</option>
+                <option value="pending">待办</option>
                 <option value="active">进行中</option>
-                <option value="blocked">阻塞</option>
-                <option value="done">已完成</option>
-                <option value="cancelled">已取消</option>
+                <option value="blocked">冻结</option>
+                <option value="done">完成</option>
+                <option value="cancelled">放弃</option>
               </select>
             )}
           </div>
