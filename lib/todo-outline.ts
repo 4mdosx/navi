@@ -27,7 +27,6 @@ type RawNode = {
 const SKIP_TITLES = /^(工作计划|周计划|本周计划|本周工作)$/
 const DONE_MARK = /(?:☑️|✅|✔️|✔|✓|☑|\[[xX]\])/g
 const BULLET = /^[-*•]\s+/
-const THEME_TITLE = /^.{1,24}$/
 
 function indentLevel(line: string): number {
   let index = 0
@@ -102,29 +101,28 @@ function looksLikeNote(title: string): boolean {
   return /(了|先把|看情况|争取|然后|这周)/.test(title)
 }
 
-function inferKind(node: RawNode, isRoot: boolean, parent?: RawNode): TodoKind {
+function inferKind(node: RawNode, parent?: RawNode): TodoKind {
   if (node.done) return 'action'
   if (node.bullet) {
     if (parent?.done && !node.done && node.children.length === 0) return 'note'
     return 'action'
   }
-  if (node.children.length > 0) return 'outcome'
+  if (node.children.length > 0) return 'action'
   if (looksLikeNote(node.title)) return 'note'
-  if (isRoot && THEME_TITLE.test(node.title)) return 'outcome'
-  return 'note'
+  return 'action'
 }
 
-function toDraft(node: RawNode, isRoot: boolean, parent?: RawNode): OutlineDraft {
+function toDraft(node: RawNode, parent?: RawNode): OutlineDraft {
   return {
     title: node.title,
-    kind: inferKind(node, isRoot, parent),
+    kind: inferKind(node, parent),
     status: node.done ? 'done' : 'pending',
-    children: node.children.map((child) => toDraft(child, false, node)),
+    children: node.children.map((child) => toDraft(child, node)),
   }
 }
 
 export function parseOutline(text: string): OutlineDraft[] {
-  return parseRawTree(text).map((node) => toDraft(node, true))
+  return parseRawTree(text).map((node) => toDraft(node))
 }
 
 function localDateKey(iso: string | null | undefined): string | null {
@@ -145,7 +143,6 @@ function inWeek(iso: string | null | undefined, weekStart: string): boolean {
 function belongsToWeek(todo: Todo, weekStart: string): boolean {
   return hasTimeLink(todo, 'week', weekStart)
     || todoTimeLinks(todo).some((link) => link.grain === 'day' && inWeek(link.date, weekStart))
-    || todo.weekStart === weekStart
 }
 
 export function selectWeekOutline(todos: Todo[], weekStart: string): Todo[] {
@@ -266,9 +263,8 @@ export function buildOutlineTree(todos: Todo[]): OutlineTreeNode[] {
   return roots
 }
 
-export function outlineRole(todo: Pick<Todo, 'kind'>): 'theme' | 'task' | 'note' {
+export function outlineRole(todo: Pick<Todo, 'kind'>): 'task' | 'note' {
   if (isNoteKind(todo.kind)) return 'note'
-  // Outline UI treats former themes (outcome/direction) as checkable tasks.
   return 'task'
 }
 

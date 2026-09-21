@@ -1,6 +1,5 @@
 export type TodoStatus = 'active' | 'pending' | 'blocked' | 'done' | 'cancelled'
-export type TodoPlacement = 'backlog' | 'week_plan'
-export type TodoKind = 'direction' | 'outcome' | 'action' | 'habit' | 'note'
+export type TodoKind = 'action' | 'note'
 export type TodoNoteType = 'user' | 'status_change'
 export type TimeGrain = 'day' | 'week' | 'horizon'
 
@@ -12,20 +11,20 @@ export const TODO_STATUS_LABEL: Record<TodoStatus, string> = {
   done: '完成',
   cancelled: '放弃',
 }
-export const TODO_KINDS: TodoKind[] = ['action', 'outcome', 'direction', 'habit', 'note']
+export const TODO_KINDS: TodoKind[] = ['action', 'note']
 export const TODO_KIND_LABEL: Record<TodoKind, string> = {
   action: '任务',
-  outcome: '主题',
-  direction: '长期方向',
-  habit: '持续习惯',
   note: '备注',
 }
-export const EDITABLE_TODO_KINDS: TodoKind[] = ['action', 'outcome', 'direction', 'habit']
 export const NOTE_TYPES: TodoNoteType[] = ['user', 'status_change']
 export const TIME_GRAINS: TimeGrain[] = ['day', 'week', 'horizon']
 
 export function isTodoStatus(value: string): value is TodoStatus {
   return TODO_STATUSES.includes(value as TodoStatus)
+}
+
+export function isTodoKind(value: string): value is TodoKind {
+  return TODO_KINDS.includes(value as TodoKind)
 }
 
 export function isTodoNoteType(value: string): value is TodoNoteType {
@@ -55,12 +54,20 @@ export function hasTimeLink(
   return todoTimeLinks(todo).some((link) => link.grain === grain && (date == null || link.date === date))
 }
 
-export function isThemeKind(kind: TodoKind): boolean {
-  return kind === 'direction' || kind === 'outcome'
+export function weekStartOf(todo?: Pick<Todo, 'timeLinks'> | null): string | null {
+  return todoTimeLinks(todo).find((link) => link.grain === 'week')?.date ?? null
 }
 
-export function isCheckableKind(kind: TodoKind): boolean {
-  return kind === 'action' || kind === 'habit'
+export function dayIndexOf(todo?: Pick<Todo, 'timeLinks'> | null): number | null {
+  const date = todoTimeLinks(todo).find((link) => link.grain === 'day')?.date
+  if (!date) return null
+  const parsed = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.getDay()
+}
+
+export function isScheduledTodo(todo?: Pick<Todo, 'timeLinks'> | null): boolean {
+  return todoTimeLinks(todo).some((link) => link.grain === 'week' || link.grain === 'day')
 }
 
 export function isNoteKind(kind: TodoKind): boolean {
@@ -93,13 +100,7 @@ export type Todo = {
   content: string
   status: TodoStatus
   estimatedMinutes: number
-  placement: TodoPlacement
   kind: TodoKind
-  reviewAt: string | null
-  activationCondition: string
-  hour: number
-  dayIndex: number | null
-  weekStart: string | null
   timeLinks?: TodoTimeLink[]
   noteType: TodoNoteType
   version: number
@@ -116,18 +117,12 @@ export type CreateTodoInput = {
   parentId?: string | null
   status?: TodoStatus
   estimatedMinutes?: number
-  placement?: TodoPlacement
   kind?: TodoKind
-  reviewAt?: string | null
-  activationCondition?: string
-  hour?: number
-  dayIndex?: number | null
-  weekStart?: string | null
   time?: Array<{ grain: TimeGrain; date: string }>
   sortOrder?: number
   noteType?: TodoNoteType
 }
 
-export type UpdateTodoInput = Partial<Omit<CreateTodoInput, 'parentId'>> & {
+export type UpdateTodoInput = Partial<Omit<CreateTodoInput, 'parentId' | 'time'>> & {
   version?: number
 }

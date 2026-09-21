@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const { action } = body
 
     if (action === 'fromPending') {
-      const { id, title, day, hour, dayIndex, weekStart } = body
+      const { id, title, day, dayIndex, weekStart } = body
       if (!id || !title || !weekStart || typeof dayIndex !== 'number') {
         return NextResponse.json({ error: 'Invalid fromPending payload' }, { status: 400 })
       }
@@ -24,7 +24,6 @@ export async function POST(request: NextRequest) {
         id: String(id),
         title: String(title),
         day: Number(day) || 1,
-        hour: Number(hour) || 1,
         dayIndex,
         weekStart: String(weekStart),
       })

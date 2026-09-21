@@ -23,8 +23,6 @@ export type PendingActivity = {
   title: string
   /** 预计时长（小时） */
   day: number
-  /** 卡片宽度格数（展示用） */
-  hour: number
 }
 
 export type ActivityDragPayload = {
@@ -33,7 +31,6 @@ export type ActivityDragPayload = {
   id: string
   title: string
   day: number
-  hour: number
 }
 
 export type TodoStatus = WeekPlanTodo['status']
@@ -48,8 +45,7 @@ export type TodoItem = {
   version: number
   status: TodoStatus
   estimatedHours: number
-  hour: number
-  /** 0 = 周日 … 6 = 周六 */
+  /** 0 = 周日 … 6 = 周六，由 day time link 推导 */
   dayIndex: number
   startedAtMs?: number
   completedAtMs?: number
@@ -67,7 +63,6 @@ function mapTodo(t: WeekPlanTodo): TodoItem {
     version: t.version,
     status: t.status,
     estimatedHours: t.estimatedHours,
-    hour: t.hour,
     dayIndex: t.dayIndex,
     startedAtMs: t.startedAtMs,
     completedAtMs: t.completedAtMs,
@@ -79,7 +74,6 @@ function mapPending(p: WeekPlanPendingActivity): PendingActivity {
     id: p.id,
     title: p.title,
     day: p.day,
-    hour: p.hour,
   }
 }
 
@@ -130,11 +124,10 @@ type TodoStore = {
   addPending: (input: {
     title: string
     estimatedHours?: number
-    hour?: number
   }) => Promise<void>
   updatePending: (
     id: string,
-    input: { title?: string; estimatedHours?: number; hour?: number }
+    input: { title?: string; estimatedHours?: number }
   ) => Promise<void>
   removePending: (id: string) => Promise<void>
   moveTodoBackToPending: (id: string) => Promise<void>
@@ -146,8 +139,6 @@ type TodoStore = {
     content?: string
     status?: TodoStatus
     kind?: TodoKind
-    reviewAt?: string | null
-    activationCondition?: string
     version: number
   }) => Promise<void>
   addSubtask: (parentId: string, input: { title: string; description?: string }) => Promise<void>
@@ -194,7 +185,7 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
       console.error('Failed to move todo to pending:', error)
     }
   },
-  addTodoFromDrop: async ({ id, title, day, hour }, dayIndex) => {
+  addTodoFromDrop: async ({ id, title, day }, dayIndex) => {
     const { weekStart } = get()
     if (!weekStart) return
     try {
@@ -202,7 +193,6 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
         id,
         title,
         day,
-        hour,
         dayIndex,
         weekStart,
       })
@@ -308,7 +298,6 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
         parentId,
         title: input.title,
         description: input.description,
-        placement: 'week_plan',
         weekStart,
         dayIndex: parent.dayIndex,
         estimatedMinutes: 30,
@@ -330,11 +319,11 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
       throw error
     }
   },
-  addPending: async ({ title, estimatedHours = 1, hour = 1 }) => {
+  addPending: async ({ title, estimatedHours = 1 }) => {
     const trimmed = title.trim()
     if (!trimmed) return
     try {
-      const pending = await apiCreatePending({ title: trimmed, estimatedHours, hour })
+      const pending = await apiCreatePending({ title: trimmed, estimatedHours })
       set({ pending: [...get().pending, mapPending(pending)] })
     } catch (error) {
       console.error('Failed to add pending:', error)

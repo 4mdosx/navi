@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createTodo, listTodos } from '@/backstage/todo/todo.service'
-import { isTimeGrain, type TodoKind, type TodoPlacement, type TodoStatus } from '@/types/todo'
+import { isTimeGrain, type TodoKind, type TodoStatus } from '@/types/todo'
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,11 +8,8 @@ export async function GET(request: NextRequest) {
     const parent = params.get('parentId')
     const grain = params.get('grain')
     const todos = await listTodos({
-      placement: (params.get('placement') || undefined) as TodoPlacement | undefined,
-      weekStart: params.get('weekStart') || undefined,
       status: (params.get('status') || undefined) as TodoStatus | undefined,
       kind: (params.get('kind') || undefined) as TodoKind | undefined,
-      reviewBefore: params.get('reviewBefore') || undefined,
       query: params.get('query') || undefined,
       parentId: parent === 'root' ? null : parent ?? undefined,
       grain: grain && isTimeGrain(grain) ? grain : undefined,

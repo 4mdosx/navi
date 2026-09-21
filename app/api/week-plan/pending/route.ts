@@ -8,14 +8,13 @@ import {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { title, estimatedHours, hour } = body
+    const { title, estimatedHours } = body
     if (!title || typeof title !== 'string') {
       return NextResponse.json({ error: 'title is required' }, { status: 400 })
     }
     const pending = await createPendingActivity({
       title,
       estimatedHours: estimatedHours != null ? Number(estimatedHours) : undefined,
-      hour: hour != null ? Number(hour) : undefined,
     })
     return NextResponse.json({ success: true, pending })
   } catch (error) {
@@ -30,14 +29,13 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
-    const { id, title, estimatedHours, hour } = body
+    const { id, title, estimatedHours } = body
     if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
     }
     const pending = await updatePendingActivity(id, {
       title: title != null ? String(title) : undefined,
       estimatedHours: estimatedHours != null ? Number(estimatedHours) : undefined,
-      hour: hour != null ? Number(hour) : undefined,
     })
     return NextResponse.json({ success: true, pending })
   } catch (error) {

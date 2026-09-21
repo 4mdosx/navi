@@ -33,18 +33,16 @@ function result(data: unknown) {
 }
 
 const status = z.enum(['active', 'pending', 'blocked', 'done', 'cancelled'])
-const placement = z.enum(['backlog', 'week_plan'])
-const kind = z.enum(['direction', 'outcome', 'action', 'habit', 'note'])
+const kind = z.enum(['action', 'note'])
 const timeGrain = z.enum(['day', 'week', 'horizon'])
 const timeLink = z.object({ grain: timeGrain, date: z.string().min(1) })
 
 server.registerTool('todo_list', {
   description: 'List and search Navi todos.',
   inputSchema: {
-    placement: placement.optional(), weekStart: z.string().optional(),
     grain: timeGrain.optional(), date: z.string().optional(),
     parentId: z.string().nullable().optional(), status: status.optional(), kind: kind.optional(),
-    reviewBefore: z.string().optional(), query: z.string().optional(),
+    query: z.string().optional(),
   },
   annotations: { readOnlyHint: true, openWorldHint: false },
 }, async (args) => result(await gateway('todo.list', args)))
@@ -60,10 +58,8 @@ server.registerTool('todo_create', {
   inputSchema: {
     title: z.string().min(1), description: z.string().optional(), content: z.string().optional(),
     parentId: z.string().nullable().optional(), status: status.optional(),
-    estimatedMinutes: z.number().int().nonnegative().optional(), placement: placement.optional(),
-    kind: kind.optional(), reviewAt: z.string().nullable().optional(),
-    activationCondition: z.string().optional(),
-    weekStart: z.string().nullable().optional(), dayIndex: z.number().int().min(0).max(6).nullable().optional(),
+    estimatedMinutes: z.number().int().nonnegative().optional(),
+    kind: kind.optional(),
     time: z.array(timeLink).optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -74,10 +70,7 @@ server.registerTool('todo_update', {
   inputSchema: {
     id: z.string().min(1), version: z.number().int().positive(), title: z.string().min(1).optional(),
     description: z.string().optional(), status: status.optional(), estimatedMinutes: z.number().int().nonnegative().optional(),
-    placement: placement.optional(), weekStart: z.string().nullable().optional(),
-    kind: kind.optional(), reviewAt: z.string().nullable().optional(),
-    activationCondition: z.string().optional(),
-    dayIndex: z.number().int().min(0).max(6).nullable().optional(),
+    kind: kind.optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 }, async (args) => result(await gateway('todo.update', args)))
@@ -101,7 +94,7 @@ server.registerTool('todo_move', {
 }, async (args) => result(await gateway('todo.move', args)))
 
 server.registerTool('todo_import_outline', {
-  description: 'Import a weekly notes-style outline into Navi as nested themes, tasks, and notes. Checkmarks become done. Do not auto-split items.',
+  description: 'Import a weekly notes-style outline into Navi as nested tasks and notes. Checkmarks become done. Do not auto-split items.',
   inputSchema: {
     text: z.string().min(1),
     weekStart: z.string().optional(),

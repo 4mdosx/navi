@@ -2,24 +2,19 @@ import 'server-only'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '@/backstage/db/database'
 import { parseOutline, type OutlineDraft } from '@/lib/todo-outline'
-import { dateFromWeekDay } from '@/backstage/week-plan/week-utils'
 import type {
-  CreateTodoInput, TimeGrain, Todo, TodoKind, TodoNoteType, TodoPlacement, TodoStatus, TodoTimeLink, UpdateTodoInput,
+  CreateTodoInput, TimeGrain, Todo, TodoKind, TodoNoteType, TodoStatus, TodoTimeLink, UpdateTodoInput,
 } from '@/types/todo'
-import { isTimeGrain, isTodoNoteType, TODO_STATUS_LABEL } from '@/types/todo'
+import { isTodoKind, isTimeGrain, isTodoNoteType, TODO_STATUS_LABEL } from '@/types/todo'
 
 const STATUSES = new Set<TodoStatus>(['active', 'pending', 'blocked', 'done', 'cancelled'])
-const PLACEMENTS = new Set<TodoPlacement>(['backlog', 'week_plan'])
-const KINDS = new Set<TodoKind>(['direction', 'outcome', 'action', 'habit', 'note'])
 const NOTE_TYPES = new Set<TodoNoteType>(['user', 'status_change'])
 const MAX_DEPTH = 6
 
 type TodoRow = {
   id: string; parentId: string | null; sortOrder: number; depth: number
   title: string; description: string; content: string; status: string
-  estimatedMinutes: number; placement: string; kind: string; reviewAt: string | null
-  activationCondition: string; hour: number
-  dayIndex: number | null; weekStart: string | null; version: number
+  estimatedMinutes: number; kind: string; version: number
   startedAt: string | null; completedAt: string | null
   createdAt: string; updatedAt: string; noteType?: string
 }
@@ -28,9 +23,7 @@ function mapTodo(row: TodoRow, timeLinks: TodoTimeLink[] = []): Todo {
   return {
     ...row,
     status: STATUSES.has(row.status as TodoStatus) ? row.status as TodoStatus : 'pending',
-    placement: PLACEMENTS.has(row.placement as TodoPlacement)
-      ? row.placement as TodoPlacement : 'backlog',
-    kind: KINDS.has(row.kind as TodoKind) ? row.kind as TodoKind : 'action',
+    kind: isTodoKind(row.kind) ? row.kind : 'action',
     noteType: isTodoNoteType(row.noteType ?? '') ? row.noteType as TodoNoteType : 'user',
     timeLinks,
   }
@@ -66,18 +59,13 @@ async function requireParent(parentId: string) {
 function normalizeTimeInput(input: CreateTodoInput): Array<{ grain: TimeGrain; date: string }> {
   const links: Array<{ grain: TimeGrain; date: string }> = []
   const seen = new Set<string>()
-  const add = (grain: TimeGrain, date: string) => {
-    const key = `${grain}:${date}`
-    if (!date || seen.has(key)) return
-    seen.add(key)
-    links.push({ grain, date })
-  }
   for (const link of input.time ?? []) {
     if (!isTimeGrain(link.grain) || !link.date.trim()) continue
-    add(link.grain, link.date.trim())
+    const key = `${link.grain}:${link.date.trim()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    links.push({ grain: link.grain, date: link.date.trim() })
   }
-  if (input.weekStart) add('week', input.weekStart)
-  if (input.weekStart && input.dayIndex != null) add('day', dateFromWeekDay(input.weekStart, input.dayIndex))
   return links
 }
 
@@ -114,7 +102,8 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
   const now = new Date().toISOString()
   const id = `todo-${Date.now()}-${nanoid(8)}`
   const status = input.status && STATUSES.has(input.status) ? input.status : 'pending'
-  const kind = input.kind && KINDS.has(input.kind) ? input.kind : (parent ? 'action' : 'outcome')
+  if (input.kind != null && !isTodoKind(input.kind)) throw new Error(`Invalid Todo kind: ${input.kind}`)
+  const kind: TodoKind = input.kind ?? 'action'
   const noteType = kind === 'note' && input.noteType && NOTE_TYPES.has(input.noteType) ? input.noteType : 'user'
   const parentTodo = input.parentId ? await getTodo(input.parentId) : null
   const time = normalizeTimeInput(input)
@@ -125,8 +114,6 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
       }
     }
   }
-  const weekLink = time.find((link) => link.grain === 'week')
-  const dayLink = time.find((link) => link.grain === 'day')
   await db.insertInto('todos').values({
     id,
     parentId: input.parentId ?? null,
@@ -137,14 +124,8 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
     content: input.content ?? '',
     status,
     estimatedMinutes: Math.max(0, Math.round(input.estimatedMinutes ?? 0)),
-    placement: input.placement ?? 'backlog',
     kind,
     noteType,
-    reviewAt: input.reviewAt ?? null,
-    activationCondition: input.activationCondition?.trim() ?? '',
-    hour: Math.max(1, Math.round(input.hour ?? 1)),
-    dayIndex: input.dayIndex ?? (dayLink ? new Date(`${dayLink.date}T00:00:00`).getDay() : null),
-    weekStart: input.weekStart ?? weekLink?.date ?? null,
     version: 1,
     startedAt: status === 'active' ? now : null,
     completedAt: status === 'done' ? now : null,
@@ -171,19 +152,16 @@ export async function getTodo(id: string): Promise<Todo> {
 }
 
 export async function listTodos(input: {
-  placement?: TodoPlacement; weekStart?: string; parentId?: string | null
-  status?: TodoStatus; kind?: TodoKind; reviewBefore?: string; query?: string
+  parentId?: string | null
+  status?: TodoStatus; kind?: TodoKind; query?: string
   grain?: TimeGrain; date?: string
 } = {}): Promise<Todo[]> {
   const db = await getDatabase()
   let query = db.selectFrom('todos').selectAll()
-  if (input.placement) query = query.where('placement', '=', input.placement)
-  if (input.weekStart) query = query.where('weekStart', '=', input.weekStart)
   if (input.parentId !== undefined) query = input.parentId === null
     ? query.where('parentId', 'is', null) : query.where('parentId', '=', input.parentId)
   if (input.status) query = query.where('status', '=', input.status)
   if (input.kind) query = query.where('kind', '=', input.kind)
-  if (input.reviewBefore) query = query.where('reviewAt', '<=', input.reviewBefore)
   if (input.query) query = query.where((eb) => eb.or([
     eb('title', 'like', `%${input.query}%`),
     eb('description', 'like', `%${input.query}%`),
@@ -217,16 +195,10 @@ export async function updateTodo(id: string, input: UpdateTodoInput): Promise<To
   if (input.description != null) updates.description = input.description
   if (input.content != null) updates.content = input.content
   if (input.estimatedMinutes != null) updates.estimatedMinutes = Math.max(0, Math.round(input.estimatedMinutes))
-  if (input.placement != null) updates.placement = input.placement
   if (input.kind != null) {
-    if (!KINDS.has(input.kind)) throw new Error(`Invalid Todo kind: ${input.kind}`)
+    if (!isTodoKind(input.kind)) throw new Error(`Invalid Todo kind: ${input.kind}`)
     updates.kind = input.kind
   }
-  if (input.reviewAt !== undefined) updates.reviewAt = input.reviewAt
-  if (input.activationCondition !== undefined) updates.activationCondition = input.activationCondition.trim()
-  if (input.hour != null) updates.hour = Math.max(1, Math.round(input.hour))
-  if (input.dayIndex !== undefined) updates.dayIndex = input.dayIndex
-  if (input.weekStart !== undefined) updates.weekStart = input.weekStart
   if (input.sortOrder != null) updates.sortOrder = input.sortOrder
   if (input.noteType != null) {
     if (!NOTE_TYPES.has(input.noteType)) throw new Error(`Invalid note type: ${input.noteType}`)

@@ -1,4 +1,6 @@
 import type { TodoStatus } from './todo'
+import type { Todo } from './todo'
+import { dayIndexOf, weekStartOf } from './todo'
 export type { TodoStatus } from './todo'
 
 export type WeekPlanPendingActivity = {
@@ -6,8 +8,6 @@ export type WeekPlanPendingActivity = {
   title: string
   /** 预计时长（小时） */
   day: number
-  /** 卡片宽度格数（展示用） */
-  hour: number
 }
 
 export type WeekPlanTodo = {
@@ -20,14 +20,34 @@ export type WeekPlanTodo = {
   version: number
   status: TodoStatus
   estimatedHours: number
-  hour: number
-  /** 0 = 周日 … 6 = 周六 */
+  /** 由 day time link 推导，0 = 周日 … 6 = 周六 */
   dayIndex: number
+  /** 由 week time link 推导 */
   weekStart: string
   startedAtMs?: number
   completedAtMs?: number
   createdAt: string
   updatedAt: string
+}
+
+export function toWeekPlanTodo(todo: Todo): WeekPlanTodo {
+  return {
+    id: todo.id,
+    parentId: todo.parentId,
+    sortOrder: todo.sortOrder,
+    title: todo.title,
+    description: todo.description,
+    content: todo.content,
+    version: todo.version,
+    status: todo.status,
+    estimatedHours: todo.estimatedMinutes / 60,
+    dayIndex: dayIndexOf(todo) ?? 0,
+    weekStart: weekStartOf(todo) ?? '',
+    startedAtMs: todo.startedAt ? Date.parse(todo.startedAt) : undefined,
+    completedAtMs: todo.completedAt ? Date.parse(todo.completedAt) : undefined,
+    createdAt: todo.createdAt,
+    updatedAt: todo.updatedAt,
+  }
 }
 
 export type CreateTodoTreeInput = {

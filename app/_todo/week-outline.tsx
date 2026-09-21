@@ -19,7 +19,6 @@ import {
 import { formatDateKey, formatWeekStart } from '@/backstage/week-plan/week-utils'
 import {
   isNoteKind,
-  isThemeKind,
   TODO_STATUSES,
   type TimeGrain,
   type Todo,
@@ -144,7 +143,6 @@ export function WeekOutline({
         body: JSON.stringify({
           status,
           version: todo.version,
-          ...(isThemeKind(todo.kind) ? { kind: 'action' as const } : {}),
         }),
       })
       onTodosChanged()

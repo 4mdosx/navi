@@ -4,9 +4,9 @@ import type {
   WeekPlanTodo,
   CreateTodoTreeResult,
 } from '@/types/week-plan'
-import type { Todo } from '@/types/todo'
-import type { TodoKind } from '@/types/todo'
-import { formatWeekStart } from '@/backstage/week-plan/week-utils'
+import { toWeekPlanTodo } from '@/types/week-plan'
+import type { Todo, TodoKind } from '@/types/todo'
+import { dateFromWeekDay, formatWeekStart } from '@/backstage/week-plan/week-utils'
 
 export const formatWeekStartClient = formatWeekStart
 
@@ -16,33 +16,12 @@ async function parseJson<T>(res: Response): Promise<T> {
     const err = new Error(
       typeof data?.error === 'string' ? data.error : 'Request failed'
     ) as Error & { logId?: string }
-    if (typeof data?.logId === 'string') {
+    if (typeof data.logId === 'string') {
       err.logId = data.logId
     }
     throw err
   }
   return data as T
-}
-
-function todoDomainToWeekPlan(todo: Todo): WeekPlanTodo {
-  return {
-    id: todo.id,
-    parentId: todo.parentId,
-    sortOrder: todo.sortOrder,
-    title: todo.title,
-    description: todo.description,
-    content: todo.content,
-    version: todo.version,
-    status: todo.status,
-    estimatedHours: todo.estimatedMinutes / 60,
-    hour: todo.hour,
-    dayIndex: todo.dayIndex ?? 0,
-    weekStart: todo.weekStart ?? '',
-    startedAtMs: todo.startedAt ? Date.parse(todo.startedAt) : undefined,
-    completedAtMs: todo.completedAt ? Date.parse(todo.completedAt) : undefined,
-    createdAt: todo.createdAt,
-    updatedAt: todo.updatedAt,
-  }
 }
 
 export async function fetchWeekPlan(weekStart: string): Promise<WeekPlanData> {
@@ -73,7 +52,6 @@ export async function apiAddTodoFromPending(input: {
   id: string
   title: string
   day: number
-  hour: number
   dayIndex: number
   weekStart: string
 }): Promise<{ todo: WeekPlanTodo; pending: WeekPlanPendingActivity[] }> {
@@ -137,7 +115,6 @@ export async function apiDeleteTodo(id: string): Promise<void> {
 export async function apiCreatePending(input: {
   title: string
   estimatedHours?: number
-  hour?: number
 }): Promise<WeekPlanPendingActivity> {
   const res = await fetch('/api/week-plan/pending', {
     method: 'POST',
@@ -151,7 +128,7 @@ export async function apiCreatePending(input: {
 
 export async function apiUpdatePending(
   id: string,
-  input: { title?: string; estimatedHours?: number; hour?: number }
+  input: { title?: string; estimatedHours?: number }
 ): Promise<WeekPlanPendingActivity> {
   const res = await fetch('/api/week-plan/pending', {
     method: 'PATCH',
@@ -197,8 +174,6 @@ export async function apiUpdateTodo(
     content?: string
     status?: WeekPlanTodo['status']
     kind?: TodoKind
-    reviewAt?: string | null
-    activationCondition?: string
     version: number
   }
 ): Promise<WeekPlanTodo> {
@@ -209,14 +184,13 @@ export async function apiUpdateTodo(
     body: JSON.stringify(input),
   })
   const data = await parseJson<{ data: Todo }>(res)
-  return todoDomainToWeekPlan(data.data)
+  return toWeekPlanTodo(data.data)
 }
 
 export async function apiCreateSubtask(input: {
   parentId: string
   title: string
   description?: string
-  placement: 'week_plan'
   weekStart: string
   dayIndex: number
   estimatedMinutes: number
@@ -225,8 +199,17 @@ export async function apiCreateSubtask(input: {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      parentId: input.parentId,
+      title: input.title,
+      description: input.description,
+      estimatedMinutes: input.estimatedMinutes,
+      time: [
+        { grain: 'week', date: input.weekStart },
+        { grain: 'day', date: dateFromWeekDay(input.weekStart, input.dayIndex) },
+      ],
+    }),
   })
   const data = await parseJson<{ data: Todo }>(res)
-  return todoDomainToWeekPlan(data.data)
+  return toWeekPlanTodo(data.data)
 }

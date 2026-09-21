@@ -25,10 +25,13 @@ import {
   type TodoItem,
 } from './todo-store'
 import { formatWeekStartClient } from './week-plan-api'
-import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
+import { shiftWeekStart, formatDateKey } from '@/backstage/week-plan/week-utils'
 import {
   TODO_KIND_LABEL,
   TODO_STATUS_LABEL,
+  hasTimeLink,
+  isScheduledTodo,
+  weekStartOf,
   type Todo,
   type TodoKind,
 } from '@/types/todo'
@@ -58,10 +61,10 @@ function getYearWeekLabel(date: Date): string {
 
 const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
 
-const PLACEMENT_FILTER_LABELS = {
-  all: '全部位置',
+const TIME_FILTER_LABELS = {
+  all: '全部时间',
   backlog: '待安排',
-  week_plan: '已安排',
+  scheduled: '已安排',
 } as const
 
 function DeleteConfirmButton({
@@ -273,7 +276,6 @@ function TodoRow({
       id: item.id,
       title: item.title,
       day: item.estimatedHours,
-      hour: item.hour,
     } satisfies ActivityDragPayload
     const payload = JSON.stringify(payloadObj)
     setDraggingPayload(payloadObj)
@@ -455,8 +457,6 @@ type TodoDetailFields = {
   status: TodoItem['status']
   version: number
   kind?: TodoKind
-  reviewAt?: string | null
-  activationCondition?: string
 }
 
 function TodoDetailDialog({
@@ -482,8 +482,6 @@ function TodoDetailDialog({
   const [content, setContent] = useState('')
   const [status, setStatus] = useState<TodoItem['status']>('pending')
   const [kind, setKind] = useState<TodoKind>('action')
-  const [reviewAt, setReviewAt] = useState('')
-  const [activationCondition, setActivationCondition] = useState('')
   const [subtaskTitle, setSubtaskTitle] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -497,8 +495,6 @@ function TodoDetailDialog({
     setContent(item.content)
     setStatus(item.status)
     setKind(item.kind ?? 'action')
-    setReviewAt(item.reviewAt ?? '')
-    setActivationCondition(item.activationCondition ?? '')
     setSubtaskTitle('')
     setError(null)
     setConfirmDelete(false)
@@ -512,7 +508,7 @@ function TodoDetailDialog({
     try {
       await updateTodo(item.id, {
         title: title.trim(), description, content, status, kind,
-        reviewAt: reviewAt || null, activationCondition, version: item.version,
+        version: item.version,
       })
       setMode('view')
     } catch (cause) {
@@ -581,8 +577,6 @@ function TodoDetailDialog({
                   setContent(item.content)
                   setStatus(item.status)
                   setKind(item.kind ?? 'action')
-                  setReviewAt(item.reviewAt ?? '')
-                  setActivationCondition(item.activationCondition ?? '')
                   setError(null)
                 }
                 setConfirmDelete(false)
@@ -639,28 +633,14 @@ function TodoDetailDialog({
               </select>
             )}
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-1.5">
-              <Label htmlFor="todo-kind">任务类型</Label>
-              {viewing ? (
-                <p className="text-sm">{TODO_KIND_LABEL[kind]}</p>
-              ) : (
-                <select id="todo-kind" value={kind} onChange={(event) => setKind(event.target.value as TodoKind)} className="h-10 rounded-md border border-neutral-200 bg-background px-3 text-sm dark:border-neutral-800">
-                  {Object.entries(TODO_KIND_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              )}
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="todo-review-at">重新关注日期</Label>
-              {viewing ? <p className="text-sm">{reviewAt || '未设置'}</p> : <Input id="todo-review-at" type="date" value={reviewAt} onChange={(event) => setReviewAt(event.target.value)} />}
-            </div>
-          </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="todo-activation-condition">启动条件</Label>
+            <Label htmlFor="todo-kind">任务类型</Label>
             {viewing ? (
-              <p className="whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{activationCondition || '未设置'}</p>
+              <p className="text-sm">{TODO_KIND_LABEL[kind]}</p>
             ) : (
-              <Input id="todo-activation-condition" value={activationCondition} onChange={(event) => setActivationCondition(event.target.value)} placeholder="例如：论文提交后；10 月演出回来后" />
+              <select id="todo-kind" value={kind} onChange={(event) => setKind(event.target.value as TodoKind)} className="h-10 rounded-md border border-neutral-200 bg-background px-3 text-sm dark:border-neutral-800">
+                {Object.entries(TODO_KIND_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
             )}
           </div>
           {!viewing && addSubtask && (
@@ -1204,7 +1184,7 @@ function WorkspaceTodoRow({
   onRemove: () => void
 }) {
   const setDraggingPayload = useTodoStore((s) => s.setDraggingPayload)
-  const isBacklog = todo.placement === 'backlog'
+  const isBacklog = !isScheduledTodo(todo)
   const hasBody = Boolean(todo.description.trim() || todo.content.trim())
 
   const onDragStart = (e: React.DragEvent) => {
@@ -1214,7 +1194,6 @@ function WorkspaceTodoRow({
       id: todo.id,
       title: todo.title,
       day: Math.max(1, Math.round(todo.estimatedMinutes / 60) || 1),
-      hour: todo.hour,
     } satisfies ActivityDragPayload
     const payload = JSON.stringify(payloadObj)
     setDraggingPayload(payloadObj)
@@ -1261,8 +1240,7 @@ function WorkspaceTodoRow({
               {TODO_KIND_LABEL[todo.kind]}
             </span>
             <span>预计 {formatEstimatedDuration(todo.estimatedMinutes / 60)}</span>
-            {todo.weekStart && <span>· {todo.weekStart}</span>}
-            {todo.reviewAt && <span>· {todo.reviewAt} 重新关注</span>}
+            {weekStartOf(todo) && <span>· {weekStartOf(todo)}</span>}
           </div>
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -1326,7 +1304,7 @@ function TodoWorkspacePanel({
   const { addPending, removePending, removeTodo } = actions
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<Todo['status'] | 'all'>('all')
-  const [placement, setPlacement] = useState<'all' | Todo['placement']>('all')
+  const [timeFilter, setTimeFilter] = useState<'all' | 'backlog' | 'scheduled'>('all')
   const [kind, setKind] = useState<'all' | TodoKind>('all')
   const [addOpen, setAddOpen] = useState(false)
   const [title, setTitle] = useState('')
@@ -1342,7 +1320,7 @@ function TodoWorkspacePanel({
   }, [todos])
 
   const backlogCount = useMemo(
-    () => todos.filter((todo) => todo.placement === 'backlog').length,
+    () => todos.filter((todo) => !isScheduledTodo(todo)).length,
     [todos]
   )
 
@@ -1350,40 +1328,42 @@ function TodoWorkspacePanel({
     const needle = query.trim().toLowerCase()
     return todos
       .filter((todo) => {
-        if (placement !== 'all' && todo.placement !== placement) return false
+        if (timeFilter === 'backlog' && isScheduledTodo(todo)) return false
+        if (timeFilter === 'scheduled' && !isScheduledTodo(todo)) return false
         if (status !== 'all' && todo.status !== status) return false
         if (kind !== 'all' && todo.kind !== kind) return false
         return !needle || `${todo.title}\n${todo.description}\n${todo.content}`.toLowerCase().includes(needle)
       })
       .sort((a, b) => {
-        if (a.placement !== b.placement) return a.placement === 'backlog' ? -1 : 1
+        const aScheduled = isScheduledTodo(a)
+        const bScheduled = isScheduledTodo(b)
+        if (aScheduled !== bScheduled) return aScheduled ? 1 : -1
         return Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
       })
-  }, [todos, query, status, placement, kind])
+  }, [todos, query, status, timeFilter, kind])
 
   const overviewGroups = useMemo(() => {
     const today = new Date()
     const currentWeekStart = formatWeekStartClient(today)
-    const todayIndex = today.getDay()
+    const todayKey = formatDateKey(today)
     const current = filtered.filter((todo) =>
       todo.status === 'active' ||
-      (todo.placement === 'week_plan' && todo.weekStart === currentWeekStart && todo.dayIndex === todayIndex && todo.status !== 'done')
+      (hasTimeLink(todo, 'day', todayKey) && todo.status !== 'done')
     )
     const currentIds = new Set(current.map((todo) => todo.id))
     const week = filtered.filter((todo) =>
-      !currentIds.has(todo.id) && todo.placement === 'week_plan' && todo.weekStart === currentWeekStart && todo.status !== 'done'
+      !currentIds.has(todo.id) && hasTimeLink(todo, 'week', currentWeekStart) && todo.status !== 'done'
     )
     const weekIds = new Set(week.map((todo) => todo.id))
     const waiting = filtered.filter((todo) =>
-      !currentIds.has(todo.id) && !weekIds.has(todo.id) &&
-      (todo.status === 'blocked' || Boolean(todo.activationCondition) || Boolean(todo.reviewAt))
+      !currentIds.has(todo.id) && !weekIds.has(todo.id) && todo.status === 'blocked'
     )
     const waitingIds = new Set(waiting.map((todo) => todo.id))
     const later = filtered.filter((todo) => !currentIds.has(todo.id) && !weekIds.has(todo.id) && !waitingIds.has(todo.id))
     return [
       { key: 'current', title: '当前焦点', hint: '今天真正需要关注', todos: current },
       { key: 'week', title: '本周计划', hint: '本周其他已安排事项', todos: week },
-      { key: 'waiting', title: '等待启动', hint: '条件、日期或前置任务未满足', todos: waiting },
+      { key: 'waiting', title: '等待启动', hint: '被冻结、需要解除阻塞', todos: waiting },
       { key: 'later', title: '长期与以后', hint: '可靠保存，暂不占用注意力', todos: later },
     ]
   }, [filtered])
@@ -1444,7 +1424,7 @@ function TodoWorkspacePanel({
         updateTodo={saveDetail}
         onDelete={async (id) => {
           const target = todos.find((todo) => todo.id === id)
-          if (target?.placement === 'backlog') await removePending(id)
+          if (target && !isScheduledTodo(target)) await removePending(id)
           else await removeTodo(id)
           onTodoSaved()
         }}
@@ -1505,11 +1485,11 @@ function TodoWorkspacePanel({
         </div>
         <div className="grid grid-cols-3 gap-2">
           <select
-            value={placement}
-            onChange={(event) => setPlacement(event.target.value as 'all' | Todo['placement'])}
+            value={timeFilter}
+            onChange={(event) => setTimeFilter(event.target.value as 'all' | 'backlog' | 'scheduled')}
             className="h-8 rounded-md border bg-background px-2 text-xs"
           >
-            {Object.entries(PLACEMENT_FILTER_LABELS).map(([value, label]) => (
+            {Object.entries(TIME_FILTER_LABELS).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
           </select>
@@ -1550,7 +1530,7 @@ function TodoWorkspacePanel({
                   onOpenDetail={() => setDetailTodo(todo)}
                   onRemove={() => {
                     void (async () => {
-                      if (todo.placement === 'backlog') await removePending(todo.id)
+                      if (!isScheduledTodo(todo)) await removePending(todo.id)
                       else await removeTodo(todo.id)
                       onTodoSaved()
                     })()

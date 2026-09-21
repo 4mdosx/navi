@@ -5,8 +5,8 @@ import { Ban, Check, ChevronDown, ChevronUp, Circle, Filter, Pause, Play } from 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
-  EDITABLE_TODO_KINDS,
   TODO_KIND_LABEL,
+  TODO_KINDS,
   TODO_STATUS_LABEL,
   TODO_STATUSES,
   type TodoKind,
@@ -242,7 +242,7 @@ export function KindPicker({
   onChange: (kind: TodoKind) => void
 }) {
   const { open, setOpen, rootRef } = useMenuOpen()
-  const options = EDITABLE_TODO_KINDS.includes(kind) ? EDITABLE_TODO_KINDS : [kind, ...EDITABLE_TODO_KINDS]
+  const options = TODO_KINDS
 
   return (
     <div ref={rootRef} className="relative shrink-0">

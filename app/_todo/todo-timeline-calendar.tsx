@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { TODO_STATUS_LABEL, type Todo, type TodoStatus } from '@/types/todo'
+import { TODO_STATUS_LABEL, hasTimeLink, type Todo, type TodoStatus } from '@/types/todo'
 import { STATUS_TOKEN } from './todo-status'
 import {
   buildWeekList,
@@ -117,10 +117,10 @@ export function TodoTimelineCalendar({
             {pageWeeks.map((week) => {
               const weekKey = formatWeekDateKey(week)
               const weekTodos = visibleTodos.filter((todo) =>
-                todo.weekStart === weekKey || sameWeek(todo.updatedAt, week) || sameWeek(todo.completedAt, week)
+                hasTimeLink(todo, 'week', weekKey) || sameWeek(todo.updatedAt, week) || sameWeek(todo.completedAt, week)
               )
               const planned = weekTodos.filter(
-                (todo) => todo.placement === 'week_plan' && todo.weekStart === weekKey
+                (todo) => hasTimeLink(todo, 'week', weekKey)
               ).length
               const done = weekTodos.filter((todo) => todo.status === 'done').length
               const isCurrent = week.getTime() === currentWeek.getTime()
@@ -221,7 +221,7 @@ export function TodoTimelineCalendar({
                 </div>
                 {pageWeeks.map((week) => {
                   const timestamp = week.getTime()
-                  const planned = todo.placement === 'week_plan' && todo.weekStart === formatWeekDateKey(week)
+                  const planned = hasTimeLink(todo, 'week', formatWeekDateKey(week))
                   const created = sameWeek(todo.createdAt, week)
                   const updated = sameWeek(todo.updatedAt, week) || sameWeek(todo.startedAt, week)
                   const completed = sameWeek(todo.completedAt, week)
