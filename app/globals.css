@@ -3,11 +3,21 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --status-pending: #7c3aed;
+  --status-active: #0284c7;
+  --status-blocked: #d97706;
+  --status-done: #059669;
+  --status-cancelled: #737373;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-status-pending: #7c3aed;
+  --color-status-active: #0284c7;
+  --color-status-blocked: #d97706;
+  --color-status-done: #059669;
+  --color-status-cancelled: #737373;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -16,8 +26,41 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --status-pending: #a78bfa;
+    --status-active: #38bdf8;
+    --status-blocked: #fbbf24;
+    --status-done: #34d399;
+    --status-cancelled: #a3a3a3;
   }
 }
+
+[data-todo-status="pending"] { color: var(--status-pending); }
+[data-todo-status="active"] { color: var(--status-active); }
+[data-todo-status="blocked"] { color: var(--status-blocked); }
+[data-todo-status="done"] { color: var(--status-done); }
+[data-todo-status="cancelled"] { color: var(--status-cancelled); }
+
+svg[data-todo-status] {
+  stroke: currentColor;
+}
+
+.todo-status-solid-pending { background-color: var(--status-pending); }
+.todo-status-solid-active { background-color: var(--status-active); }
+.todo-status-solid-blocked { background-color: var(--status-blocked); }
+.todo-status-solid-done { background-color: var(--status-done); }
+.todo-status-solid-cancelled { background-color: var(--status-cancelled); }
+
+.todo-status-soft-pending { background-color: color-mix(in srgb, var(--status-pending) 12%, transparent); }
+.todo-status-soft-active { background-color: color-mix(in srgb, var(--status-active) 12%, transparent); }
+.todo-status-soft-blocked { background-color: color-mix(in srgb, var(--status-blocked) 12%, transparent); }
+.todo-status-soft-done { background-color: color-mix(in srgb, var(--status-done) 12%, transparent); }
+.todo-status-soft-cancelled { background-color: color-mix(in srgb, var(--status-cancelled) 12%, transparent); }
+
+.todo-status-border-pending { border-color: color-mix(in srgb, var(--status-pending) 40%, transparent); }
+.todo-status-border-active { border-color: color-mix(in srgb, var(--status-active) 40%, transparent); }
+.todo-status-border-blocked { border-color: color-mix(in srgb, var(--status-blocked) 40%, transparent); }
+.todo-status-border-done { border-color: color-mix(in srgb, var(--status-done) 40%, transparent); }
+.todo-status-border-cancelled { border-color: color-mix(in srgb, var(--status-cancelled) 40%, transparent); }
 
 body {
   background: var(--background);

@@ -9,7 +9,7 @@
 - **前端**：Next.js 16 + React 19 + TypeScript
 - **UI**：Radix UI + Tailwind CSS
 - **数据库**：SQLite（Kysely + better-sqlite3）
-- **认证**：TOTP
+- **认证**：PIN
 - **Agent**：Navi Todo MCP
 
 ## 快速开始
@@ -23,7 +23,7 @@ npm run dev
 
 访问 http://localhost:5500
 
-`.env` 至少配置 `SESSION_SECRET` 和 `TOTP_SECRET`。
+`.env` 至少配置 `SESSION_SECRET`。首次打开会设置 4 位 PIN，之后用 PIN 解锁。可在设置页更新，或运行 `npm run clear-pin` 清除后重新设置。
 
 ## MCP
 

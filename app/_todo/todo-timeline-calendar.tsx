@@ -3,7 +3,8 @@
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { Todo, TodoStatus } from '@/types/todo'
+import { TODO_STATUS_LABEL, type Todo, type TodoStatus } from '@/types/todo'
+import { STATUS_TOKEN } from './todo-status'
 import {
   buildWeekList,
   formatWeekDateKey,
@@ -15,20 +16,6 @@ import {
 const PAGE_SIZE = TIMELINE_PAGE_SIZE
 
 const STATUS_ORDER = ['done', 'active', 'blocked', 'pending'] as const satisfies readonly TodoStatus[]
-
-const STATUS_BAR_COLOR: Record<(typeof STATUS_ORDER)[number], string> = {
-  done: 'bg-emerald-500 dark:bg-emerald-400',
-  active: 'bg-sky-500 dark:bg-sky-400',
-  blocked: 'bg-amber-500 dark:bg-amber-400',
-  pending: 'bg-violet-500 dark:bg-violet-400',
-}
-
-const STATUS_LABEL: Record<(typeof STATUS_ORDER)[number], string> = {
-  done: '完成',
-  active: '进行中',
-  blocked: '冻结',
-  pending: '待办',
-}
 
 function sameWeek(timestamp: string | null, weekStart: Date) {
   return timestamp != null && startOfWeek(new Date(timestamp)).getTime() === weekStart.getTime()
@@ -164,8 +151,8 @@ export function TodoTimelineCalendar({
                         {statusCounts.map(({ status, count }) => (
                           <div
                             key={status}
-                            title={`${STATUS_LABEL[status]} ${count}`}
-                            className={cn('h-full shrink-0', STATUS_BAR_COLOR[status])}
+                            title={`${TODO_STATUS_LABEL[status]} ${count}`}
+                            className={cn('h-full shrink-0', STATUS_TOKEN[status].solid)}
                             style={{ width: `${(count / progressTotal) * 100}%` }}
                           />
                         ))}
@@ -179,8 +166,8 @@ export function TodoTimelineCalendar({
           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t pt-2 text-[10px] text-muted-foreground">
             {STATUS_ORDER.map((status) => (
               <span key={status} className="inline-flex items-center gap-1">
-                <span className={cn('size-1.5 rounded-full', STATUS_BAR_COLOR[status])} />
-                {STATUS_LABEL[status]}
+                <span className={cn('size-1.5 rounded-full', STATUS_TOKEN[status].solid)} />
+                {TODO_STATUS_LABEL[status]}
               </span>
             ))}
           </div>
@@ -230,7 +217,7 @@ export function TodoTimelineCalendar({
               <div key={todo.id} className="flex border-b last:border-b-0">
                 <div className="sticky left-0 z-10 w-56 shrink-0 border-r bg-card px-4 py-3">
                   <p className="truncate text-sm font-medium" title={todo.title}>{todo.title}</p>
-                  <p className="mt-1 text-[10px] text-muted-foreground">{todo.estimatedMinutes} 分钟 · {todo.status === 'done' ? '完成' : todo.status === 'active' ? '进行中' : todo.status === 'blocked' ? '冻结' : todo.status === 'cancelled' ? '放弃' : '待办'}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">{todo.estimatedMinutes} 分钟 · {TODO_STATUS_LABEL[todo.status]}</p>
                 </div>
                 {pageWeeks.map((week) => {
                   const timestamp = week.getTime()

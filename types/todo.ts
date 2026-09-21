@@ -12,6 +12,15 @@ export const TODO_STATUS_LABEL: Record<TodoStatus, string> = {
   done: '完成',
   cancelled: '放弃',
 }
+export const TODO_KINDS: TodoKind[] = ['action', 'outcome', 'direction', 'habit', 'note']
+export const TODO_KIND_LABEL: Record<TodoKind, string> = {
+  action: '任务',
+  outcome: '主题',
+  direction: '长期方向',
+  habit: '持续习惯',
+  note: '备注',
+}
+export const EDITABLE_TODO_KINDS: TodoKind[] = ['action', 'outcome', 'direction', 'habit']
 export const NOTE_TYPES: TodoNoteType[] = ['user', 'status_change']
 export const TIME_GRAINS: TimeGrain[] = ['day', 'week', 'horizon']
 

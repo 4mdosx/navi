@@ -18,6 +18,11 @@ const SCHEMA_VERSION = 5
 function ensureSchema(): void {
   if (schemaVersionApplied >= SCHEMA_VERSION) return
   sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
     DROP TABLE IF EXISTS llm_interaction_logs;
     DROP TABLE IF EXISTS inbox_items;
     DROP TABLE IF EXISTS tracker_items;

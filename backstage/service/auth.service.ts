@@ -3,8 +3,19 @@ import 'server-only'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { SignJWT, jwtVerify } from 'jose'
-import { TotpLoginSchema, type SessionPayload } from './auth.types'
-import { verifyOTP } from './2fa.service'
+import {
+  SetupPinSchema,
+  UnlockPinSchema,
+  UpdatePinSchema,
+  type PinFieldErrors,
+  type SessionPayload,
+} from './auth.types'
+import {
+  getPinEpoch,
+  isPinConfigured,
+  savePin,
+  verifyStoredPin,
+} from './pin.service'
 
 const secretKey = process.env.SESSION_SECRET
 const encodedKey = new TextEncoder().encode(secretKey)
@@ -22,13 +33,24 @@ export async function decrypt(session: string | undefined = '') {
     const { payload } = await jwtVerify(session, encodedKey, {
       algorithms: ['HS256'],
     })
-    return payload
-  } catch (error) {
-    console.log('Failed to verify session', error)
+    return {
+      expiresAt: payload.expiresAt as SessionPayload['expiresAt'],
+      pinEpoch: typeof payload.pinEpoch === 'string' ? payload.pinEpoch : '',
+    }
+  } catch {
+    return
   }
 }
 
-export async function verifySessionGuard () {
+export async function verifySessionGuard() {
+  return requireAppAccess()
+}
+
+export async function requireAppAccess() {
+  if (!(await isPinConfigured())) {
+    redirect('/login')
+  }
+
   const session = await verifySession()
   if (!session.isAuth) {
     redirect('/login')
@@ -39,22 +61,28 @@ export async function verifySessionGuard () {
 
 export const verifySession = async () => {
   const cookie = (await cookies()).get('session')?.value
-  const session = await decrypt(cookie)
-
-  if (!session) {
-    return { isAuth: false }
+  if (!cookie) {
+    return { isAuth: false as const }
   }
 
-  return { isAuth: true, expiresAt: session.expiresAt }
+  const session = await decrypt(cookie)
+  const pinEpoch = await getPinEpoch()
+
+  if (!session || !pinEpoch || session.pinEpoch !== pinEpoch) {
+    return { isAuth: false as const }
+  }
+
+  return { isAuth: true as const, expiresAt: session.expiresAt, pinEpoch }
 }
 
 export async function createSession() {
+  const pinEpoch = (await getPinEpoch()) ?? ''
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-  const jwt = await encrypt({ expiresAt })
+  const jwt = await encrypt({ expiresAt, pinEpoch })
   const userCookies = await cookies()
   userCookies.set('session', jwt, {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === 'production',
     expires: expiresAt,
     sameSite: 'lax',
     path: '/',
@@ -74,7 +102,7 @@ export async function updateSession() {
   const cookieStore = await cookies()
   cookieStore.set('session', session, {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === 'production',
     expires: expires,
     sameSite: 'lax',
     path: '/',
@@ -85,30 +113,62 @@ export async function deleteSession() {
   ;(await cookies()).delete('session')
 }
 
-export type TotpLoginFieldErrors = Record<string, string[] | undefined>
-
-/**
- * TOTP 校验通过后签发 session cookie。
- * 供 `app/actions/auth` 等 Server Action 调用；不在此函数内 redirect。
- */
-export async function loginWithTotp(
+export async function setupPin(
   input: unknown
-): Promise<{ ok: true } | { ok: false; errors: TotpLoginFieldErrors }> {
-  const parsed = TotpLoginSchema.safeParse(input)
+): Promise<{ ok: true } | { ok: false; errors: PinFieldErrors }> {
+  if (await isPinConfigured()) {
+    return { ok: false, errors: { pin: ['PIN 已设置，请直接解锁'] } }
+  }
+
+  const parsed = SetupPinSchema.safeParse(input)
   if (!parsed.success) {
     return { ok: false, errors: parsed.error.flatten().fieldErrors }
   }
 
-  const secret = process.env.TOTP_SECRET
-  if (!secret) {
-    return { ok: false, errors: { code: ['Server misconfiguration'] } }
+  await savePin(parsed.data.pin)
+  await createSession()
+  return { ok: true }
+}
+
+export async function loginWithPin(
+  input: unknown
+): Promise<{ ok: true } | { ok: false; errors: PinFieldErrors }> {
+  if (!(await isPinConfigured())) {
+    return { ok: false, errors: { pin: ['尚未设置 PIN'] } }
   }
 
-  const valid = await verifyOTP(secret, parsed.data.code)
+  const parsed = UnlockPinSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.flatten().fieldErrors }
+  }
+
+  const valid = await verifyStoredPin(parsed.data.pin)
   if (!valid) {
-    return { ok: false, errors: { code: ['Invalid code'] } }
+    return { ok: false, errors: { pin: ['PIN 不正确'] } }
   }
 
+  await createSession()
+  return { ok: true }
+}
+
+export async function updatePin(
+  input: unknown
+): Promise<{ ok: true } | { ok: false; errors: PinFieldErrors }> {
+  if (!(await isPinConfigured())) {
+    return { ok: false, errors: { currentPin: ['尚未设置 PIN'] } }
+  }
+
+  const parsed = UpdatePinSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.flatten().fieldErrors }
+  }
+
+  const valid = await verifyStoredPin(parsed.data.currentPin)
+  if (!valid) {
+    return { ok: false, errors: { currentPin: ['当前 PIN 不正确'] } }
+  }
+
+  await savePin(parsed.data.pin)
   await createSession()
   return { ok: true }
 }

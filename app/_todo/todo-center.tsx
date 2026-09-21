@@ -26,11 +26,17 @@ import {
 } from './todo-store'
 import { formatWeekStartClient } from './week-plan-api'
 import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
-import type { Todo, TodoKind } from '@/types/todo'
+import {
+  TODO_KIND_LABEL,
+  TODO_STATUS_LABEL,
+  type Todo,
+  type TodoKind,
+} from '@/types/todo'
 import type { ExecutionActivity } from '@/types/execution'
 import { TodoActivityView } from './todo-activity-view'
 import { TodoTimelineCalendar } from './todo-timeline-calendar'
 import { TodayExecutionCenter } from './today-execution-center'
+import { StatusGlyph } from './todo-status'
 
 function getSundayOfWeekContaining(date: Date): Date {
   const d = new Date(date)
@@ -52,27 +58,11 @@ function getYearWeekLabel(date: Date): string {
 
 const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
 
-const TODO_FILTER_LABELS: Record<Todo['status'], string> = {
-  active: '进行中',
-  pending: '待办',
-  blocked: '冻结',
-  done: '完成',
-  cancelled: '放弃',
-}
-
 const PLACEMENT_FILTER_LABELS = {
   all: '全部位置',
   backlog: '待安排',
   week_plan: '已安排',
 } as const
-
-const TODO_KIND_LABELS: Record<TodoKind, string> = {
-  direction: '长期方向',
-  outcome: '主题',
-  action: '任务',
-  habit: '持续习惯',
-  note: '备注',
-}
 
 function DeleteConfirmButton({
   onConfirm,
@@ -638,7 +628,7 @@ function TodoDetailDialog({
           <div className="grid gap-1.5">
             <Label htmlFor="todo-status">状态</Label>
             {viewing ? (
-              <p className="text-sm">{TODO_FILTER_LABELS[status]}</p>
+              <p className="text-sm">{TODO_STATUS_LABEL[status]}</p>
             ) : (
               <select id="todo-status" value={status} onChange={(event) => setStatus(event.target.value as TodoItem['status'])} className="h-10 rounded-md border border-neutral-200 bg-background px-3 text-sm dark:border-neutral-800">
                 <option value="pending">待办</option>
@@ -653,10 +643,10 @@ function TodoDetailDialog({
             <div className="grid gap-1.5">
               <Label htmlFor="todo-kind">任务类型</Label>
               {viewing ? (
-                <p className="text-sm">{TODO_KIND_LABELS[kind]}</p>
+                <p className="text-sm">{TODO_KIND_LABEL[kind]}</p>
               ) : (
                 <select id="todo-kind" value={kind} onChange={(event) => setKind(event.target.value as TodoKind)} className="h-10 rounded-md border border-neutral-200 bg-background px-3 text-sm dark:border-neutral-800">
-                  {Object.entries(TODO_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  {Object.entries(TODO_KIND_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               )}
             </div>
@@ -1257,7 +1247,7 @@ function WorkspaceTodoRow({
               {todo.title}
             </span>
             <span className="shrink-0 text-[10px] text-muted-foreground">
-              {TODO_FILTER_LABELS[todo.status]}
+              {TODO_STATUS_LABEL[todo.status]}
             </span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -1268,7 +1258,7 @@ function WorkspaceTodoRow({
               {isBacklog ? '待安排' : '已安排'}
             </span>
             <span className="rounded bg-violet-500/10 px-1 py-0.5 text-violet-700 dark:text-violet-300">
-              {TODO_KIND_LABELS[todo.kind]}
+              {TODO_KIND_LABEL[todo.kind]}
             </span>
             <span>预计 {formatEstimatedDuration(todo.estimatedMinutes / 60)}</span>
             {todo.weekStart && <span>· {todo.weekStart}</span>}
@@ -1525,7 +1515,7 @@ function TodoWorkspacePanel({
           </select>
           <select value={kind} onChange={(event) => setKind(event.target.value as 'all' | TodoKind)} className="h-8 rounded-md border bg-background px-2 text-xs">
             <option value="all">全部类型</option>
-            {Object.entries(TODO_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {Object.entries(TODO_KIND_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
           <select
             value={status}
@@ -1533,7 +1523,7 @@ function TodoWorkspacePanel({
             className="h-8 rounded-md border bg-background px-2 text-xs"
           >
             <option value="all">全部状态</option>
-            {Object.entries(TODO_FILTER_LABELS).map(([value, label]) => (
+            {Object.entries(TODO_STATUS_LABEL).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
           </select>
@@ -1730,8 +1720,10 @@ function WeeklyControlPanel({
                 <ul className="divide-y border-t bg-muted/10">
                   {group.items.map((todo) => (
                     <li key={todo.id} className="flex items-start gap-3 px-3 py-2.5">
-                      <button type="button" onClick={() => void (todo.status === 'done' ? Promise.resolve() : completeTodo(todo.id))} className="mt-0.5 text-muted-foreground hover:text-emerald-600" aria-label="完成任务">{todo.status === 'done' ? <Check className="size-4 text-emerald-600" /> : <Circle className="size-4" />}</button>
-                      <button type="button" onClick={() => setDetailTodo(todo)} className="min-w-0 flex-1 text-left"><span className={cn('text-xs font-medium', todo.status === 'done' && 'text-muted-foreground line-through')}>{todo.title}</span><p className="mt-1 text-[10px] text-muted-foreground">{WEEKDAY_LABELS[todo.dayIndex]} · {formatEstimatedDuration(todo.estimatedHours)} · {TODO_FILTER_LABELS[todo.status]}</p></button>
+                      <button type="button" onClick={() => void (todo.status === 'done' ? Promise.resolve() : completeTodo(todo.id))} className="mt-0.5" aria-label="完成任务">
+                        <StatusGlyph status={todo.status} />
+                      </button>
+                      <button type="button" onClick={() => setDetailTodo(todo)} className="min-w-0 flex-1 text-left"><span className={cn('text-xs font-medium', todo.status === 'done' && 'text-muted-foreground line-through')}>{todo.title}</span><p className="mt-1 text-[10px] text-muted-foreground">{WEEKDAY_LABELS[todo.dayIndex]} · {formatEstimatedDuration(todo.estimatedHours)} · {TODO_STATUS_LABEL[todo.status]}</p></button>
                       {todo.status === 'pending' && <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-[10px]" onClick={() => void startTodo(todo.id)}><Play className="mr-1 size-3" />开始</Button>}
                     </li>
                   ))}
