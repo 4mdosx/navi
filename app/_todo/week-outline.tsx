@@ -26,12 +26,11 @@ import {
   type TodoStatus,
 } from '@/types/todo'
 import { StatusFilterButton, StatusPicker } from './todo-status'
+import { OUTLINE_DRAG_TYPE, hasWorkspaceDrag, WORKSPACE_DRAG_TYPE } from './todo-drag'
 
 type Adding = { parentId: string | null; kind: TodoKind }
 type DropPosition = 'before' | 'after' | 'into'
 type DropTarget = { id: string; position: DropPosition }
-
-const OUTLINE_DRAG_TYPE = 'application/x-navi-outline-todo'
 
 function dropPositionFromEvent(event: React.DragEvent<HTMLElement>): DropPosition {
   const rect = event.currentTarget.getBoundingClientRect()
@@ -50,6 +49,7 @@ export function WeekOutline({
   onPromote,
   onSelect,
   onOpenNotes,
+  onLeaveWorkspace,
 }: {
   todos: Todo[]
   ready?: boolean
@@ -59,6 +59,7 @@ export function WeekOutline({
   onPromote?: (todoId: string) => void
   onSelect?: (todo: Todo) => void
   onOpenNotes?: (todo: Todo) => void
+  onLeaveWorkspace?: (todoId: string) => void
 }) {
   const [adding, setAdding] = useState<Adding | null>(null)
   const [draft, setDraft] = useState('')
@@ -269,8 +270,32 @@ export function WeekOutline({
     return () => window.removeEventListener('dragend', onWindowDragEnd)
   }, [])
 
+  const acceptWorkspaceLeave = (event: React.DragEvent<HTMLElement>) => {
+    if (!hasWorkspaceDrag(event) || !onLeaveWorkspace) return false
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    return true
+  }
+
+  const dropWorkspaceLeave = (event: React.DragEvent<HTMLElement>) => {
+    const todoId = event.dataTransfer.getData(WORKSPACE_DRAG_TYPE)
+    if (!todoId || !onLeaveWorkspace) return false
+    event.preventDefault()
+    event.stopPropagation()
+    onLeaveWorkspace(todoId)
+    return true
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      onDragOver={(event) => {
+        if (acceptWorkspaceLeave(event)) return
+      }}
+      onDrop={(event) => {
+        if (dropWorkspaceLeave(event)) return
+      }}
+    >
       {error && <p className="shrink-0 px-3 py-2 text-xs text-destructive">{error}</p>}
 
       <div className="flex shrink-0 items-center gap-1.5 px-3 pt-3">
@@ -291,6 +316,7 @@ export function WeekOutline({
       <div
         className="min-h-0 flex-1 overflow-y-auto p-3 pt-2"
         onDragOver={(event) => {
+          if (acceptWorkspaceLeave(event)) return
           if (!draggingId || rootTasks.length === 0) return
           if ((event.target as HTMLElement).closest('[data-outline-row]')) return
           event.preventDefault()
@@ -298,6 +324,7 @@ export function WeekOutline({
           if (last.id !== draggingId) setDropTarget({ id: last.id, position: 'after' })
         }}
         onDrop={(event) => {
+          if (dropWorkspaceLeave(event)) return
           if (!draggingId || !dropTarget) return
           event.preventDefault()
           void moveNode(draggingId, dropTarget)

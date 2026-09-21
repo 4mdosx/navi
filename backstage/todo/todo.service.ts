@@ -2,6 +2,7 @@ import 'server-only'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '@/backstage/db/database'
 import { parseOutline, type OutlineDraft } from '@/lib/todo-outline'
+import { startTodoTimeSpan, stopTodoTimeSpan } from '@/backstage/todo/todo-time-span.service'
 import type {
   CreateTodoInput, TimeGrain, Todo, TodoKind, TodoNoteType, TodoStatus, TodoTimeLink, UpdateTodoInput,
 } from '@/types/todo'
@@ -140,6 +141,7 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
       date: link.date,
     }).onConflict((conflict) => conflict.columns(['todoId', 'grain', 'date']).doNothing()).execute()
   }
+  if (status === 'active' && kind !== 'note') await startTodoTimeSpan(id)
   return getTodo(id)
 }
 
@@ -214,6 +216,10 @@ export async function updateTodo(id: string, input: UpdateTodoInput): Promise<To
   }
   const db = await getDatabase()
   await db.updateTable('todos').set(updates).where('id', '=', id).where('version', '=', current.version).execute()
+  if (statusChanged && current.kind !== 'note') {
+    if (nextStatus === 'active') await startTodoTimeSpan(id)
+    else await stopTodoTimeSpan(id)
+  }
   if (statusChanged && current.kind !== 'note' && current.depth < MAX_DEPTH) {
     await createTodo({
       title: `状态变更：${TODO_STATUS_LABEL[current.status]} → ${TODO_STATUS_LABEL[nextStatus!]}`,

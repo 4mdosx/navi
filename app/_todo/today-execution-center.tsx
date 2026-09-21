@@ -6,13 +6,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { isEditableNote, isNoteKind, isStatusChangeNote, TODO_STATUS_LABEL, type Todo, type TodoKind, type TodoStatus } from '@/types/todo'
+import { isEditableNote, isNoteKind, isStatusChangeNote, TODO_STATUS_LABEL, type Todo, type TodoKind, type TodoStatus, type TodoTimeSpan } from '@/types/todo'
 import type { TodayExecution } from '@/types/execution'
 import { shiftWeekStart } from '@/backstage/week-plan/week-utils'
 import { noteChildrenOf } from '@/lib/todo-outline'
 import { formatWeekStartClient } from './week-plan-api'
 import { WeekOutline } from './week-outline'
 import { EstimatedMinutesControl, KindPicker, StatusGlyph, StatusPicker, STATUS_TOKEN } from './todo-status'
+import { TimeProgressBackdrop } from './time-progress-backdrop'
+import { WorkZone } from './work-zone'
+import { WORKSPACE_DRAG_TYPE, hasWorkspaceDrag } from './todo-drag'
 
 type ViewId = 'week' | 'today'
 type Detail = { title: string; description: string; plannedMinutes: number; meta?: string; todoId?: string }
@@ -31,7 +34,7 @@ function WeekSwitcher({ weekStart, onChange }: { weekStart: string; onChange: (w
   const currentWeek = formatWeekStartClient(new Date())
   const isCurrentWeek = weekStart === currentWeek
   return (
-    <div className="flex min-w-0 items-center gap-1">
+    <div className="relative z-10 flex min-w-0 items-center gap-1">
       <button type="button" onClick={() => onChange(shiftWeekStart(weekStart, -1))} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="上一周">
         <ChevronLeft className="size-4" />
       </button>
@@ -57,8 +60,36 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
   const [, setData] = useState<TodayExecution>({ items: [], sessions: [] })
   const [selected, setSelected] = useState<Detail | null>(null)
   const [reordering, setReordering] = useState(false)
+  const [spans, setSpans] = useState<TodoTimeSpan[]>([])
+  const [now, setNow] = useState(() => Date.now())
   const load = useCallback(() => fetch('/api/execution/today').then((r) => r.json()).then((r) => setData(r.data)), [])
+  const spanRange = useMemo(() => {
+    const start = new Date(`${weekStart}T00:00:00`)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const from = new Date(Math.min(start.getTime(), today.getTime()))
+    const weekEnd = new Date(start)
+    weekEnd.setDate(weekEnd.getDate() + 7)
+    const to = new Date(Math.max(weekEnd.getTime(), Date.now()))
+    return { from: from.toISOString(), to: to.toISOString() }
+  }, [weekStart])
+  const loadSpans = useCallback(() => {
+    const query = new URLSearchParams(spanRange)
+    return fetch(`/api/todo-time-spans?${query}`, { credentials: 'include' })
+      .then((response) => response.json())
+      .then((result) => {
+        if (!result.success) throw new Error(result.error || '时间记录加载失败')
+        setSpans(Array.isArray(result.data) ? result.data : [])
+      })
+      .catch(() => undefined)
+  }, [spanRange])
   useEffect(() => { void load() }, [load])
+  useEffect(() => { void loadSpans() }, [loadSpans])
+  useEffect(() => {
+    const hasOpen = spans.some((span) => span.endedAt == null)
+    const timer = window.setInterval(() => setNow(Date.now()), hasOpen ? 1000 : 30_000)
+    return () => window.clearInterval(timer)
+  }, [spans])
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
@@ -76,6 +107,10 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+  const handleTodosChanged = useCallback(() => {
+    onTodosChanged()
+    void loadSpans()
+  }, [onTodosChanged, loadSpans])
   const promote = async (todoId: string) => {
     const response = await fetch('/api/execution/today', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'promote', todoId }) })
     const result = await response.json()
@@ -84,6 +119,23 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
     onTodosChanged()
     onExecutionChanged()
   }
+  const mutateWorkspace = async (todoId: string, action: 'enter' | 'leave') => {
+    const query = new URLSearchParams(spanRange)
+    const response = await fetch(`/api/todo-time-spans?${query}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, todoId }),
+    })
+    const result = await response.json()
+    if (!response.ok || !result.success) throw new Error(result.error || (action === 'enter' ? '进入工作区失败' : '移出工作区失败'))
+    if (Array.isArray(result.data?.spans)) setSpans(result.data.spans)
+    else void loadSpans()
+    onTodosChanged()
+    onExecutionChanged()
+  }
+  const enterWorkspace = (todoId: string) => { void mutateWorkspace(todoId, 'enter') }
+  const leaveWorkspace = (todoId: string) => { void mutateWorkspace(todoId, 'leave') }
   const todoById = useMemo(() => new Map(todos.map((todo) => [todo.id, todo])), [todos])
   const childrenByParentId = useMemo(() => {
     const grouped = new Map<string, Todo[]>()
@@ -180,7 +232,7 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
     })
     const result = await response.json()
     if (!response.ok || !result.success) throw new Error(result.error || '任务更新失败')
-    onTodosChanged()
+    handleTodosChanged()
   }
   const openNotes = (todo: Todo) => {
     selectTodo(todo)
@@ -205,9 +257,10 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
   }
   return <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
     <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card">
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b px-3 py-2">
+      <header className="relative flex shrink-0 items-center justify-between gap-3 overflow-hidden border-b px-3 py-2.5" aria-label="今天与本周时间进度">
+        <TimeProgressBackdrop weekStart={weekStart} spans={spans} now={now} />
         <WeekSwitcher weekStart={weekStart} onChange={setWeekStart} />
-        <div className="flex items-center gap-2">
+        <div className="relative z-10 flex items-center gap-2">
           <div className="rounded-md bg-muted p-1">
             {VIEWS.map((item) => (
               <button
@@ -232,10 +285,31 @@ export function TodayExecutionCenter({ todos, todosReady = true, onTodosChanged,
           </Link>
         </div>
       </header>
+      <WorkZone
+        todos={todos}
+        spans={spans}
+        now={now}
+        onEnter={enterWorkspace}
+        onLeave={leaveWorkspace}
+        onSelect={selectTodo}
+      />
       {view === 'week' ? (
-        <WeekOutline todos={todos} ready={todosReady} weekStart={weekStart} onTodosChanged={onTodosChanged} onPromote={(todoId) => void promote(todoId)} onSelect={selectTodo} onOpenNotes={openNotes} />
+        <WeekOutline todos={todos} ready={todosReady} weekStart={weekStart} onTodosChanged={handleTodosChanged} onPromote={(todoId) => void promote(todoId)} onSelect={selectTodo} onOpenNotes={openNotes} onLeaveWorkspace={leaveWorkspace} />
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
+        <div
+          className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center"
+          onDragOver={(event) => {
+            if (!hasWorkspaceDrag(event)) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'move'
+          }}
+          onDrop={(event) => {
+            const todoId = event.dataTransfer.getData(WORKSPACE_DRAG_TYPE)
+            if (!todoId) return
+            event.preventDefault()
+            leaveWorkspace(todoId)
+          }}
+        >
           <p className="text-sm font-medium">今天</p>
           <p className="mt-1 text-xs text-muted-foreground">执行视图待设计</p>
         </div>

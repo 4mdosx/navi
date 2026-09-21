@@ -64,4 +64,20 @@ export function migrateTodoDomain(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_todo_time_links_lookup
     ON todo_time_links(grain, date, todoId);
   `)
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS todo_time_spans (
+      id TEXT PRIMARY KEY,
+      todoId TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+      startedAt TEXT NOT NULL,
+      endedAt TEXT,
+      createdAt TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_todo_time_spans_range
+      ON todo_time_spans(startedAt, endedAt);
+    CREATE INDEX IF NOT EXISTS idx_todo_time_spans_todo
+      ON todo_time_spans(todoId, startedAt);
+    CREATE INDEX IF NOT EXISTS idx_todo_time_spans_open
+      ON todo_time_spans(todoId) WHERE endedAt IS NULL;
+  `)
 }

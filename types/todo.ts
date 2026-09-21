@@ -110,6 +110,14 @@ export type Todo = {
   updatedAt: string
 }
 
+export type TodoTimeSpan = {
+  id: string
+  todoId: string
+  startedAt: string
+  endedAt: string | null
+  createdAt: string
+}
+
 export type CreateTodoInput = {
   title: string
   description?: string
