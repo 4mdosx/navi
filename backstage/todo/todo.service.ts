@@ -3,9 +3,12 @@ import { nanoid } from 'nanoid'
 import { getDatabase } from '@/backstage/db/database'
 import { parseOutline, type OutlineDraft } from '@/lib/todo-outline'
 import { startTodoTimeSpan, stopTodoTimeSpan } from '@/backstage/todo/todo-time-span.service'
+import { setTodoTags, tagsForTodos } from '@/backstage/todo/tag.service'
 import type {
   CreateTodoInput, TimeGrain, Todo, TodoKind, TodoNoteType, TodoStatus, TodoTimeLink, UpdateTodoInput,
 } from '@/types/todo'
+import type { Tag } from '@/types/tag'
+import { tagIdsOf } from '@/types/tag'
 import { isTodayScheduled, isTodoKind, isTimeGrain, isTodoNoteType, TODO_STATUS_LABEL } from '@/types/todo'
 
 const STATUSES = new Set<TodoStatus>(['active', 'pending', 'blocked', 'done', 'cancelled'])
@@ -21,13 +24,14 @@ type TodoRow = {
   createdAt: string; updatedAt: string; noteType?: string
 }
 
-function mapTodo(row: TodoRow, timeLinks: TodoTimeLink[] = []): Todo {
+function mapTodo(row: TodoRow, timeLinks: TodoTimeLink[] = [], tags: Tag[] = []): Todo {
   return {
     ...row,
     status: STATUSES.has(row.status as TodoStatus) ? row.status as TodoStatus : 'pending',
     kind: isTodoKind(row.kind) ? row.kind : 'action',
     noteType: isTodoNoteType(row.noteType ?? '') ? row.noteType as TodoNoteType : 'user',
     timeLinks,
+    tags,
   }
 }
 
@@ -51,9 +55,10 @@ async function loadTimeLinks(ids: string[]): Promise<Map<string, TodoTimeLink[]>
   return grouped
 }
 
-async function withTimeLinks(rows: TodoRow[]): Promise<Todo[]> {
-  const grouped = await loadTimeLinks(rows.map((row) => row.id))
-  return rows.map((row) => mapTodo(row, grouped.get(row.id) ?? []))
+async function withTodoRelations(rows: TodoRow[]): Promise<Todo[]> {
+  const ids = rows.map((row) => row.id)
+  const [grouped, tags] = await Promise.all([loadTimeLinks(ids), tagsForTodos(ids)])
+  return rows.map((row) => mapTodo(row, grouped.get(row.id) ?? [], tags.get(row.id) ?? []))
 }
 
 async function requireParent(parentId: string) {
@@ -152,6 +157,9 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
       createdAt: now,
     }).onConflict((conflict) => conflict.columns(['todoId', 'grain', 'date']).doNothing()).execute()
   }
+  const copyParentTags = Boolean(parentTodo) && kind !== 'note' && kind !== 'rest' && input.tagIds == null
+  const tagIds = input.tagIds ?? (copyParentTags ? tagIdsOf(parentTodo) : [])
+  if (tagIds.length > 0) await setTodoTags(id, tagIds)
   if (status === 'active' && kind !== 'note') await startTodoTimeSpan(id)
   return getTodo(id)
 }
@@ -160,7 +168,7 @@ export async function findRestTodo(): Promise<Todo | null> {
   const db = await getDatabase()
   const row = await db.selectFrom('todos').selectAll().where('kind', '=', 'rest').orderBy('createdAt').executeTakeFirst()
   if (!row) return null
-  const [todo] = await withTimeLinks([row])
+  const [todo] = await withTodoRelations([row])
   return todo
 }
 
@@ -174,7 +182,7 @@ export async function getTodo(id: string): Promise<Todo> {
   const db = await getDatabase()
   const row = await db.selectFrom('todos').selectAll().where('id', '=', id).executeTakeFirst()
   if (!row) throw new Error(`Todo not found: ${id}`)
-  const [todo] = await withTimeLinks([row])
+  const [todo] = await withTodoRelations([row])
   return todo
 }
 
@@ -195,7 +203,7 @@ export async function listTodos(input: {
     eb('content', 'like', `%${input.query}%`),
   ]))
   const rows = await query.orderBy('sortOrder').orderBy('createdAt', 'desc').execute()
-  const todos = await withTimeLinks(rows)
+  const todos = await withTodoRelations(rows)
   if (!input.grain) return todos
   if (input.grain === 'day' && input.date) {
     return todos.filter((todo) => isTodayScheduled(todo, input.date))
@@ -261,6 +269,7 @@ export async function updateTodo(id: string, input: UpdateTodoInput): Promise<To
   if (statusChanged && current.kind === 'action' && nextStatus && CASCADE_TO_PENDING_CHILDREN.has(nextStatus)) {
     await cascadeStatusToPendingDescendants(id, nextStatus)
   }
+  if (input.tagIds != null) await setTodoTags(id, input.tagIds)
   return getTodo(id)
 }
 

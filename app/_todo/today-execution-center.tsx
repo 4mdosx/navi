@@ -12,6 +12,7 @@ import { noteChildrenOf } from '@/lib/todo-outline'
 import { formatWeekStartClient } from './week-plan-api'
 import { WeekOutline } from './week-outline'
 import { EstimatedMinutesControl, StatusGlyph, StatusPicker, STATUS_TOKEN } from './todo-status'
+import { TodoHashtags } from './todo-tags'
 import { TimeProgressBackdrop } from './time-progress-backdrop'
 import { WorkZone } from './work-zone'
 import { DayTimelinePanel } from './day-timeline-panel'
@@ -320,6 +321,7 @@ export function TodayExecutionCenter({
           onUpdateNote={updateNote}
           onDeleteNote={deleteNote}
           onPatchTodo={patchTodo}
+          onTagsChanged={handleTodosChanged}
         />
       ) : (
         <p className="mt-3 text-xs text-muted-foreground">选择任务，或点时间条查看这一天。</p>
@@ -384,6 +386,59 @@ function NoteTimelineRail({
       </div>
       {!last && <div className="w-px flex-1 bg-border" />}
     </div>
+  )
+}
+
+function DetailTitleField({
+  value,
+  onSave,
+}: {
+  value: string
+  onSave: (value: string) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const skipSave = useRef(false)
+
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  const commit = () => {
+    if (skipSave.current) {
+      skipSave.current = false
+      setDraft(value)
+      return
+    }
+    const trimmed = draft.trim()
+    if (!trimmed) {
+      setDraft(value)
+      return
+    }
+    if (trimmed !== value) onSave(trimmed)
+  }
+
+  return (
+    <Textarea
+      id="todo-title"
+      rows={1}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          skipSave.current = true
+          setDraft(value)
+          event.currentTarget.blur()
+          return
+        }
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault()
+          event.currentTarget.blur()
+        }
+      }}
+      className="min-h-9 break-words font-medium leading-6"
+    />
   )
 }
 
@@ -472,6 +527,7 @@ function TaskDetailPanel({
   onUpdateNote,
   onDeleteNote,
   onPatchTodo,
+  onTagsChanged,
 }: {
   selected: Detail
   selectedTodo: Todo | null | undefined
@@ -487,6 +543,7 @@ function TaskDetailPanel({
   onUpdateNote: (note: Todo, title: string) => Promise<void>
   onDeleteNote: (note: Todo) => Promise<void>
   onPatchTodo: (todo: Todo, input: TodoPatch) => Promise<void>
+  onTagsChanged: () => void
 }) {
   const noteInputRef = useRef<HTMLTextAreaElement>(null)
   const title = selectedTodo?.title ?? selected.title
@@ -518,24 +575,18 @@ function TaskDetailPanel({
         </button>
       )}
       {selectedTodo ? (
-        <InlineEdit
+        <DetailTitleField
           key={`${selectedTodo.id}-title`}
           value={title}
-          className="w-full text-left text-sm font-medium leading-6"
-          inputClassName="h-8 font-medium"
-          emptyLabel="未命名任务"
-          onSave={(next) => {
-            const trimmed = next.trim()
-            if (!trimmed || trimmed === selectedTodo.title) return
-            void onPatchTodo(selectedTodo, { title: trimmed })
-          }}
+          onSave={(next) => void onPatchTodo(selectedTodo, { title: next })}
         />
       ) : (
-        <p className="font-medium">{title}</p>
+        <p className="break-words font-medium">{title}</p>
       )}
       {selectedTodo && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <StatusPicker status={selectedTodo.status} onChange={(status) => void onPatchTodo(selectedTodo, { status })} />
+          <TodoHashtags todo={selectedTodo} onChanged={onTagsChanged} />
         </div>
       )}
       {selected.meta && <p className="mt-2 text-[10px] text-muted-foreground">{selected.meta}</p>}

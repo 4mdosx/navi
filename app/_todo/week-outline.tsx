@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import {
   buildOutlineTree,
   countOutlineProgress,
+  filterOutlineByFocusMode,
   filterOutlineByStatuses,
   outlineRole,
   outlineTaskChildren,
@@ -29,6 +30,8 @@ import {
   type TodoStatus,
 } from '@/types/todo'
 import { StatusFilterButton, StatusGlyph, StatusPicker } from './todo-status'
+import { TagManagerButton } from './todo-tags'
+import { useTagWorkspace } from './tag-workspace'
 import { OUTLINE_DRAG_TYPE, hasWorkspaceDrag, WORKSPACE_DRAG_TYPE } from './todo-drag'
 
 type Adding = { parentId: string | null; kind: TodoKind }
@@ -109,6 +112,7 @@ export function WeekOutline({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   const [statusFilter, setStatusFilter] = useState<Set<TodoStatus>>(() => new Set(TODO_STATUSES))
+  const { activeFocusMode } = useTagWorkspace()
   const commandPressed = useCommandPressed()
   const todayKey = formatDateKey(new Date())
   const resolvedWeekStart = weekStart || formatWeekStart(new Date())
@@ -124,8 +128,8 @@ export function WeekOutline({
     [isTodayView, weekTodos, scheduledIds],
   )
   const visible = useMemo(
-    () => filterOutlineByStatuses(weekTodos, statusFilter),
-    [weekTodos, statusFilter],
+    () => filterOutlineByFocusMode(filterOutlineByStatuses(weekTodos, statusFilter), activeFocusMode),
+    [weekTodos, statusFilter, activeFocusMode],
   )
   const tree = useMemo(() => buildOutlineTree(visible), [visible])
 
@@ -370,6 +374,7 @@ export function WeekOutline({
           新增任务
         </Button>
         <StatusFilterButton selected={statusFilter} onChange={setStatusFilter} />
+        <TagManagerButton onChanged={onTodosChanged} />
       </div>
 
       <div
@@ -417,7 +422,7 @@ export function WeekOutline({
         ) : rootTasks.length === 0 ? (
           <div className="rounded-lg border border-dashed px-4 py-12 text-center">
             <p className="text-sm font-medium">没有符合筛选的任务</p>
-            <p className="mt-1 text-xs text-muted-foreground">调整过滤状态后再看。</p>
+            <p className="mt-1 text-xs text-muted-foreground">调整过滤状态或情景模式后再看。</p>
           </div>
         ) : (
           <div className="space-y-1">

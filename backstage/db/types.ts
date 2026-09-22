@@ -59,4 +59,23 @@ export interface Database {
     endReason: string | null
     note: string
   }
+  tags: {
+    id: string
+    name: string
+    createdAt: string
+    updatedAt: string
+  }
+  todo_tags: {
+    todoId: string
+    tagId: string
+    createdAt: string
+  }
+  focus_modes: {
+    id: string
+    name: string
+    includeTags: string
+    excludeTags: string
+    createdAt: string
+    updatedAt: string
+  }
 }

@@ -40,6 +40,7 @@ import { TodoActivityView } from './todo-activity-view'
 import { TodoTimelineCalendar } from './todo-timeline-calendar'
 import { TodayExecutionCenter } from './today-execution-center'
 import { AppToolbar, type WorkspaceViewId } from './app-toolbar'
+import { TagWorkspaceProvider } from './tag-workspace'
 import { StatusGlyph } from './todo-status'
 
 function getSundayOfWeekContaining(date: Date): Date {
@@ -591,11 +592,14 @@ function TodoDetailDialog({
         <div className="grid gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="todo-title">标题</Label>
-            {viewing ? (
-              <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">{title || '—'}</p>
-            ) : (
-              <Input id="todo-title" value={title} onChange={(event) => setTitle(event.target.value)} />
-            )}
+            <Textarea
+              id="todo-title"
+              rows={1}
+              value={title}
+              readOnly={viewing}
+              onChange={viewing ? undefined : (event) => setTitle(event.target.value)}
+              className={cn('min-h-9 break-words', viewing && 'bg-muted/40')}
+            />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="todo-description">描述与验收标准</Label>
@@ -1796,6 +1800,7 @@ export default function WeekPlanPage() {
         setAllTodos(Array.isArray(result.data) ? result.data.map((todo: Todo) => ({
           ...todo,
           timeLinks: Array.isArray(todo.timeLinks) ? todo.timeLinks : [],
+          tags: Array.isArray(todo.tags) ? todo.tags : [],
         })) : [])
       })
       .catch(() => undefined)
@@ -1918,6 +1923,7 @@ export default function WeekPlanPage() {
   )
 
   return (
+    <TagWorkspaceProvider>
     <div className="flex h-svh">
       <AppToolbar
         view={view}
@@ -1982,5 +1988,6 @@ export default function WeekPlanPage() {
         </div>
       </div>
     </div>
+    </TagWorkspaceProvider>
   )
 }

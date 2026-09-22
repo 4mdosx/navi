@@ -9,6 +9,7 @@ import {
   type TodoKind,
   type TodoStatus,
 } from '@/types/todo'
+import { matchesFocusMode, tagIdsOf } from '@/types/tag'
 
 export type OutlineDraft = {
   title: string
@@ -184,6 +185,19 @@ export function filterOutlineByStatuses(todos: Todo[], statuses: ReadonlySet<Tod
   for (const todo of list) {
     if (todo.kind === 'note' || todo.kind === 'rest') continue
     if (statuses.has(todo.status)) visible.add(todo.id)
+  }
+  withAncestors(list, visible, byId)
+  return withNotesOfVisible(list, visible)
+}
+
+export function filterOutlineByFocusMode(todos: Todo[], mode?: Parameters<typeof matchesFocusMode>[1]): Todo[] {
+  if (!mode) return todos
+  const list = todos.filter(Boolean)
+  const byId = new Map(list.map((todo) => [todo.id, todo]))
+  const visible = new Set<string>()
+  for (const todo of list) {
+    if (todo.kind === 'note' || todo.kind === 'rest') continue
+    if (matchesFocusMode(tagIdsOf(todo), mode)) visible.add(todo.id)
   }
   withAncestors(list, visible, byId)
   return withNotesOfVisible(list, visible)

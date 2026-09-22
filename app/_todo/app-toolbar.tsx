@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { CalendarDays, Moon, PanelLeft, Settings, Sun } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getColorTheme, subscribeColorTheme, toggleColorTheme } from '@/lib/theme'
+import { FocusModeTool } from './todo-tags'
 
 export type WorkspaceViewId = 'week' | 'today'
 
@@ -81,7 +82,7 @@ export function AppToolbar({
   return (
     <nav
       aria-label="工作区工具栏"
-      className="relative z-50 flex h-svh w-12 shrink-0 flex-col items-center border-r bg-card py-2"
+      className="relative z-50 flex h-svh w-12 shrink-0 flex-col items-center overflow-visible border-r bg-card py-2"
     >
       <div className="flex w-10 flex-col gap-0.5">
         {WORKSPACE_VIEWS.map((item) => {
@@ -117,6 +118,8 @@ export function AppToolbar({
           ⌥Esc
         </kbd>
       </ToolbarButton>
+
+      <FocusModeTool closeWhen={insightsOpen} />
 
       <div className="mt-auto flex w-10 flex-col items-center gap-0.5">
         <ToolbarButton

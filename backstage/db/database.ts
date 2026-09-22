@@ -13,7 +13,7 @@ const dbPath = process.env.DB_FILE_NAME
 const sqlite = new Database(dbPath)
 
 let schemaVersionApplied = 0
-const SCHEMA_VERSION = 9
+const SCHEMA_VERSION = 10
 
 function ensureSchema(): void {
   if (schemaVersionApplied >= SCHEMA_VERSION) return

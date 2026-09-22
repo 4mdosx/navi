@@ -91,4 +91,28 @@ export function migrateTodoDomain(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_todo_time_spans_open
       ON todo_time_spans(todoId) WHERE endedAt IS NULL;
   `)
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS tags (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS todo_tags (
+      todoId TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+      tagId TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+      createdAt TEXT NOT NULL,
+      PRIMARY KEY (todoId, tagId)
+    );
+    CREATE INDEX IF NOT EXISTS idx_todo_tags_tag ON todo_tags(tagId);
+    CREATE TABLE IF NOT EXISTS focus_modes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      includeTags TEXT NOT NULL DEFAULT '["*"]',
+      excludeTags TEXT NOT NULL DEFAULT '[]',
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+  `)
 }

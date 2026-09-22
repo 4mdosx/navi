@@ -56,7 +56,7 @@ export const STATUS_TOKEN: Record<TodoStatus, {
   },
 }
 
-function useMenuOpen() {
+export function useMenuOpen() {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 

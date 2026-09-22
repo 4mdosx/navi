@@ -1,3 +1,5 @@
+import type { Tag } from './tag'
+
 export type TodoStatus = 'active' | 'pending' | 'blocked' | 'done' | 'cancelled'
 export type TodoKind = 'action' | 'note' | 'rest'
 export type TodoNoteType = 'user' | 'status_change'
@@ -169,6 +171,7 @@ export type Todo = {
   estimatedMinutes: number
   kind: TodoKind
   timeLinks?: TodoTimeLink[]
+  tags?: Tag[]
   noteType: TodoNoteType
   version: number
   startedAt: string | null
@@ -194,6 +197,7 @@ export type CreateTodoInput = {
   estimatedMinutes?: number
   kind?: TodoKind
   time?: Array<{ grain: TimeGrain; date: string }>
+  tagIds?: string[]
   sortOrder?: number
   noteType?: TodoNoteType
 }
