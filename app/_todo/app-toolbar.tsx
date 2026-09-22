@@ -24,6 +24,14 @@ function isEditableTarget(target: EventTarget | null) {
   return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
 }
 
+function ShortcutHint({ children }: { children: string }) {
+  return (
+    <kbd className="rounded border bg-muted px-0.5 py-px font-mono text-[8px] font-normal text-muted-foreground [writing-mode:horizontal-tb]">
+      {children}
+    </kbd>
+  )
+}
+
 function ToolbarButton({
   pressed,
   className,
@@ -53,15 +61,17 @@ export function AppToolbar({
   onViewChange,
   insightsOpen,
   onToggleInsights,
+  className,
 }: {
   view: WorkspaceViewId
   onViewChange: (view: WorkspaceViewId) => void
   insightsOpen: boolean
   onToggleInsights: () => void
+  className?: string
 }) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
+      if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return
       if (isEditableTarget(event.target)) return
       const shortcut = event.code === 'Digit1' || event.code === 'Numpad1'
         ? '1'
@@ -82,7 +92,10 @@ export function AppToolbar({
   return (
     <nav
       aria-label="工作区工具栏"
-      className="relative z-50 flex h-svh w-12 shrink-0 flex-col items-center overflow-visible border-r bg-card py-2"
+      className={cn(
+        'relative z-50 h-svh w-12 shrink-0 flex-col items-center overflow-visible border-r bg-card py-2',
+        className ?? 'flex',
+      )}
     >
       <div className="flex w-10 flex-col gap-0.5">
         {WORKSPACE_VIEWS.map((item) => {
@@ -92,34 +105,29 @@ export function AppToolbar({
               key={item.id}
               pressed={view === item.id}
               onClick={() => onViewChange(item.id)}
-              aria-keyshortcuts={`Meta+${item.shortcut}`}
-              title={`${item.label} ⌘${item.shortcut}`}
+              aria-keyshortcuts={`Alt+${item.shortcut}`}
+              title={`${item.label} ⌥${item.shortcut}`}
             >
               <Icon className="size-3.5" />
               <span className="[writing-mode:vertical-rl] tracking-[0.2em]">{item.label}</span>
+              <ShortcutHint>{`⌥${item.shortcut}`}</ShortcutHint>
             </ToolbarButton>
           )
         })}
+        <FocusModeTool closeWhen={insightsOpen} />
+        <ToolbarButton
+          pressed={insightsOpen}
+          onClick={onToggleInsights}
+          aria-expanded={insightsOpen}
+          aria-controls="todo-insights-drawer"
+          aria-keyshortcuts="Alt+Escape"
+          title="周视图 ⌥Esc"
+        >
+          <PanelLeft className="size-3.5" />
+          <span className="[writing-mode:vertical-rl] tracking-[0.2em]">周视图</span>
+          <ShortcutHint>⌥Esc</ShortcutHint>
+        </ToolbarButton>
       </div>
-
-      <div className="my-2 h-px w-6 bg-border" />
-
-      <ToolbarButton
-        pressed={insightsOpen}
-        onClick={onToggleInsights}
-        aria-expanded={insightsOpen}
-        aria-controls="todo-insights-drawer"
-        title="周视图 ⌥Esc"
-        className="w-10"
-      >
-        <PanelLeft className="size-3.5" />
-        <span className="[writing-mode:vertical-rl] tracking-[0.2em]">周视图</span>
-        <kbd className="rounded border bg-muted px-0.5 py-px font-mono text-[8px] font-normal text-muted-foreground [writing-mode:horizontal-tb]">
-          ⌥Esc
-        </kbd>
-      </ToolbarButton>
-
-      <FocusModeTool closeWhen={insightsOpen} />
 
       <div className="mt-auto flex w-10 flex-col items-center gap-0.5">
         <ToolbarButton

@@ -118,7 +118,7 @@ export function TagManagerButton({ onChanged }: { onChanged?: () => void }) {
         type="button"
         size="sm"
         variant="outline"
-        className="h-7 gap-1 px-2 text-[11px]"
+        className="h-9 gap-1 px-2 text-xs md:h-7 md:text-[11px]"
         onClick={() => {
           setOpen((current) => {
             if (current) reset()
@@ -137,7 +137,7 @@ export function TagManagerButton({ onChanged }: { onChanged?: () => void }) {
         )}
       </Button>
       {open && (
-        <div role="menu" className="absolute left-0 z-30 mt-1 w-64 rounded-md border bg-background p-2 shadow-md">
+        <div role="menu" className="absolute left-0 z-30 mt-1 w-64 max-w-[calc(100vw-1.5rem)] rounded-md border bg-background p-2 shadow-md">
           <p className="mb-1.5 px-1 text-[10px] text-muted-foreground">管理标签，任务详情里用 #hashtag 添加。</p>
           {tags.length === 0 ? (
             <p className="rounded-md border border-dashed px-2 py-3 text-center text-[11px] text-muted-foreground">
@@ -495,7 +495,18 @@ function modeSummary(mode: FocusMode, tags: Tag[]) {
   return exclude ? `include ${include} · exclude ${exclude}` : `include ${include}`
 }
 
-export function FocusModeTool({ closeWhen }: { closeWhen?: boolean }) {
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
+}
+
+export function FocusModeTool({
+  closeWhen,
+  presentation = 'rail',
+}: {
+  closeWhen?: boolean
+  presentation?: 'rail' | 'inline'
+}) {
   const {
     tags,
     focusModes,
@@ -517,33 +528,90 @@ export function FocusModeTool({ closeWhen }: { closeWhen?: boolean }) {
     }
   }, [closeWhen, setOpen])
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) return
+      if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return
+      if (event.code !== 'Digit3' && event.code !== 'Numpad3') return
+      if (isEditableTarget(event.target)) return
+      event.preventDefault()
+      const order: Array<string | null> = [null, ...focusModes.map((mode) => mode.id)]
+      const index = Math.max(0, order.indexOf(activeFocusModeId))
+      setActiveFocusModeId(order[(index + 1) % order.length] ?? null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [activeFocusModeId, focusModes, setActiveFocusModeId])
+
+  const toggleOpen = () => {
+    setOpen((current) => !current)
+    if (open) setEditingId(null)
+  }
+
   return (
-    <div ref={rootRef} className="relative mt-0.5 w-10">
+    <div ref={rootRef} className={presentation === 'rail' ? 'relative w-full' : 'relative'}>
       <button
         type="button"
         aria-pressed={open || Boolean(activeFocusMode)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={activeFocusMode ? `情景：${activeFocusMode.name}` : '情景模式'}
-        onClick={() => {
-          setOpen((current) => !current)
-          if (open) setEditingId(null)
-        }}
+        aria-keyshortcuts="Alt+3"
+        aria-label={activeFocusMode ? `情景：${activeFocusMode.name}` : '情景'}
+        title={activeFocusMode ? `情景：${activeFocusMode.name} ⌥3` : '情景 ⌥3'}
+        onClick={toggleOpen}
         className={cn(
-          'flex w-full flex-col items-center gap-1 rounded-md px-0.5 py-2 text-[10px] font-medium leading-none transition-colors',
+          presentation === 'rail'
+            ? 'flex w-full flex-col items-center gap-1 rounded-md px-0.5 py-2 text-[10px] font-medium leading-none transition-colors'
+            : 'inline-flex h-9 items-center gap-1 rounded-md border px-2 text-xs font-medium md:h-7 md:text-[11px]',
           open || activeFocusMode
             ? 'bg-muted text-foreground shadow-sm'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
         )}
       >
-        <Focus className="size-3.5" />
-        <span className="[writing-mode:vertical-rl] tracking-[0.2em]">情景</span>
+        {activeFocusMode ? (
+          <span
+            aria-hidden
+            className="flex size-3.5 items-center justify-center rounded-sm bg-sky-500/15 text-[9px] font-semibold leading-none text-sky-700 dark:text-sky-300"
+          >
+            {activeFocusMode.name.slice(0, 1)}
+          </span>
+        ) : (
+          <Focus className="size-3.5" />
+        )}
+        {presentation === 'rail' ? (
+          <span className="max-h-16 overflow-hidden [writing-mode:vertical-rl] tracking-[0.2em]">
+            {activeFocusMode ? activeFocusMode.name : '情景'}
+          </span>
+        ) : (
+          <span className="max-w-24 truncate">{activeFocusMode ? activeFocusMode.name : '情景'}</span>
+        )}
+        {presentation === 'rail' && (
+          <kbd className="rounded border bg-muted px-0.5 py-px font-mono text-[8px] font-normal text-muted-foreground [writing-mode:horizontal-tb]">
+            ⌥3
+          </kbd>
+        )}
       </button>
+      {open && presentation === 'inline' && (
+        <button
+          type="button"
+          aria-label="关闭情景"
+          className="fixed inset-0 z-40 bg-black/30"
+          onClick={() => {
+            setOpen(false)
+            setEditingId(null)
+          }}
+        />
+      )}
       {open && (
         <div
           role="dialog"
           aria-label="情景模式"
-          className="absolute left-full top-0 z-50 ml-2 w-80 rounded-lg border bg-background p-3 shadow-xl"
+          className={cn(
+            'z-50 rounded-lg border bg-background p-3 shadow-xl',
+            presentation === 'rail'
+              ? 'absolute left-full top-0 ml-2 w-80'
+              : 'fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] max-h-[min(32rem,70dvh)] overflow-y-auto',
+          )}
         >
           <div className="mb-2 flex items-start justify-between gap-2">
             <div>

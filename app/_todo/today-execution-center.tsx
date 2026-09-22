@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowRight, ChevronLeft, ChevronRight, CornerUpLeft, MessageSquare, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,6 +21,9 @@ import { formatDuration, totalSpanMs } from './todo-time'
 import { sessionLimitMs } from '@/lib/todo-session'
 import { ensureNotificationPermission, notifySessionEnded } from './session-notify'
 import type { WorkspaceViewId } from './app-toolbar'
+import { MobileSheet } from './mobile-chrome'
+import { closePhonePanel, openPhonePanel } from './phone-panel'
+import { useNoHover, usePhoneLayout } from './use-phone-layout'
 
 type Detail = { title: string; description: string; plannedMinutes: number; meta?: string; todoId?: string }
 type TodoPatch = { status?: TodoStatus; estimatedMinutes?: number; title?: string; description?: string }
@@ -29,15 +33,15 @@ function WeekSwitcher({ weekStart, onChange }: { weekStart: string; onChange: (w
   const isCurrentWeek = weekStart === currentWeek
   return (
     <div className="relative z-10 flex min-w-0 items-center gap-1">
-      <button type="button" onClick={() => onChange(shiftWeekStart(weekStart, -1))} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="上一周">
+      <button type="button" onClick={() => onChange(shiftWeekStart(weekStart, -1))} className="touch-hit inline-flex items-center justify-center rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="上一周">
         <ChevronLeft className="size-4" />
       </button>
       <p className="min-w-28 text-center text-xs font-medium tabular-nums">{weekStart} 起</p>
-      <button type="button" onClick={() => onChange(shiftWeekStart(weekStart, 1))} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="下一周">
+      <button type="button" onClick={() => onChange(shiftWeekStart(weekStart, 1))} className="touch-hit inline-flex items-center justify-center rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="下一周">
         <ChevronRight className="size-4" />
       </button>
       {!isCurrentWeek && (
-        <button type="button" onClick={() => onChange(currentWeek)} className="ml-1 text-[10px] text-primary hover:underline">回到本周</button>
+        <button type="button" onClick={() => onChange(currentWeek)} className="touch-hit ml-1 text-xs text-primary hover:underline md:text-[10px]">回到本周</button>
       )}
     </div>
   )
@@ -58,6 +62,12 @@ export function TodayExecutionCenter({
   onTodosChanged: () => void
   onExecutionChanged: () => void
 }) {
+  const phone = usePhoneLayout()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const panel = searchParams.get('panel')
+  const panelId = searchParams.get('id')
+  const panelDate = searchParams.get('date')
   const [weekStart, setWeekStart] = useState(() => formatWeekStartClient(new Date()))
   const [noteDraft, setNoteDraft] = useState('')
   const [focusNotes, setFocusNotes] = useState(false)
@@ -66,7 +76,7 @@ export function TodayExecutionCenter({
   const [spans, setSpans] = useState<TodoTimeSpan[]>([])
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [selectedSpans, setSelectedSpans] = useState<TodoTimeSpan[]>([])
-  const [now, setNow] = useState(() => Date.now())
+  const [now, setNow] = useState<number | null>(null)
   const endingSpanIds = useRef(new Set<string>())
   const load = useCallback(() => fetch('/api/execution/today').then((r) => r.json()).then((r) => setData(r.data)), [])
   const spanRange = useMemo(() => {
@@ -92,8 +102,10 @@ export function TodayExecutionCenter({
   useEffect(() => { void load() }, [load])
   useEffect(() => { void loadSpans() }, [loadSpans])
   useEffect(() => {
+    const tick = () => setNow(Date.now())
+    tick()
     const hasOpen = spans.some((span) => span.endedAt == null)
-    const timer = window.setInterval(() => setNow(Date.now()), hasOpen ? 1000 : 30_000)
+    const timer = window.setInterval(tick, hasOpen ? 1000 : 30_000)
     return () => window.clearInterval(timer)
   }, [spans])
   const handleTodosChanged = useCallback(() => {
@@ -161,14 +173,8 @@ export function TodayExecutionCenter({
       for (const timer of timers) window.clearTimeout(timer)
     }
   }, [spans, todoById, mutateWorkspace])
-  const parentLabel = (todo: Todo) => todo.parentId ? todoById.get(todo.parentId)?.title : null
-  const selectTodo = (todo: Todo) => {
-    if (isRestKind(todo.kind)) {
-      setSelected(null)
-      setSelectedDay(formatDateKey(new Date()))
-      return
-    }
-    const parent = parentLabel(todo)
+  const showTodo = useCallback((todo: Todo) => {
+    const parent = todo.parentId ? todoById.get(todo.parentId)?.title : null
     setSelectedDay(null)
     setSelected({
       title: todo.title,
@@ -177,11 +183,58 @@ export function TodayExecutionCenter({
       meta: parent ? `属于：${parent}` : undefined,
       todoId: todo.id,
     })
+  }, [todoById])
+  const selectTodo = (todo: Todo) => {
+    if (isRestKind(todo.kind)) {
+      const today = formatDateKey(new Date())
+      if (phone) {
+        openPhonePanel(router, `/?panel=day&date=${today}`)
+        return
+      }
+      setSelected(null)
+      setSelectedDay(today)
+      return
+    }
+    if (phone) {
+      openPhonePanel(router, `/?panel=task&id=${encodeURIComponent(todo.id)}`)
+      return
+    }
+    showTodo(todo)
   }
   const selectDay = (dateKey: string) => {
+    if (phone) {
+      openPhonePanel(router, `/?panel=day&date=${encodeURIComponent(dateKey)}`)
+      return
+    }
     setSelected(null)
     setSelectedDay(dateKey)
   }
+  const closeDetail = () => {
+    if (phone) {
+      closePhonePanel(router)
+      return
+    }
+    setSelected(null)
+    setSelectedDay(null)
+  }
+  useEffect(() => {
+    if (!phone) return
+    if (panel === 'task' && panelId) {
+      const todo = todoById.get(panelId)
+      if (!todo || isRestKind(todo.kind)) return
+      showTodo(todo)
+      return
+    }
+    if (panel === 'day' && panelDate) {
+      setSelected(null)
+      setSelectedDay(panelDate)
+      return
+    }
+    if (panel !== 'insights') {
+      setSelected(null)
+      setSelectedDay(null)
+    }
+  }, [phone, panel, panelId, panelDate, showTodo, todoById])
   const selectedTodo = selected?.todoId ? todoById.get(selected.todoId) : null
   const selectedParent = selectedTodo?.parentId ? todoById.get(selectedTodo.parentId) : null
   const selectedNotes = selectedTodo ? noteChildrenOf(todos, selectedTodo.id) : []
@@ -198,7 +251,7 @@ export function TodayExecutionCenter({
       .catch(() => undefined)
     return () => { cancelled = true }
   }, [selected?.todoId, spans])
-  const actualMs = selectedSpans.length > 0 ? totalSpanMs(selectedSpans, now) : null
+  const actualMs = selectedSpans.length > 0 && now != null ? totalSpanMs(selectedSpans, now) : null
   const addNote = async () => {
     if (!selectedTodo || !noteDraft.trim()) return
     const response = await fetch('/api/todos', {
@@ -266,68 +319,101 @@ export function TodayExecutionCenter({
     handleTodosChanged()
   }
   const openNotes = (todo: Todo) => {
-    selectTodo(todo)
     setFocusNotes(true)
+    selectTodo(todo)
   }
-  return <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card">
-      <header className="relative flex shrink-0 items-center gap-3 overflow-hidden border-b px-3 pt-2.5 pb-3.5" aria-label="今天与本周时间进度">
-        <TimeProgressBackdrop weekStart={weekStart} spans={spans} todos={todos} now={now} selectedDate={selectedDay} onSelectDay={selectDay} />
-        <WeekSwitcher weekStart={weekStart} onChange={setWeekStart} />
+  const workspaceTodoIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const span of spans) {
+      if (span.endedAt == null) ids.add(span.todoId)
+    }
+    return ids
+  }, [spans])
+  const detailTitle = selectedDay ? formatDayTitle(selectedDay) : (selectedTodo?.title || selected?.title || '任务')
+  const detailBody = selectedDay ? (
+    <DayTimelinePanel dateKey={selectedDay} todos={todos} spans={spans} now={now ?? 0} onSelectTodo={selectTodo} />
+  ) : selected ? (
+    <TaskDetailPanel
+      selected={selected}
+      selectedTodo={selectedTodo}
+      selectedParent={selectedParent}
+      selectedNotes={selectedNotes}
+      actualMs={actualMs}
+      noteDraft={noteDraft}
+      focusNotes={focusNotes}
+      onSelectTodo={selectTodo}
+      onNoteDraft={setNoteDraft}
+      onFocusNotesHandled={() => setFocusNotes(false)}
+      onAddNote={addNote}
+      onUpdateNote={updateNote}
+      onDeleteNote={deleteNote}
+      onPatchTodo={patchTodo}
+      onTagsChanged={handleTodosChanged}
+    />
+  ) : (
+    <p className="mt-3 text-xs text-muted-foreground">选择任务，或点时间条查看这一天。</p>
+  )
+  return <div className="grid h-full min-h-0 flex-1 grid-cols-1 md:h-auto md:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] md:gap-3">
+    <section className="flex min-h-0 flex-col overflow-hidden bg-card md:rounded-lg md:border">
+      <header className={cn('relative shrink-0 border-b', phone ? 'px-3 pt-2 pb-2' : 'flex items-center gap-3 overflow-hidden px-3 pt-2.5 pb-3.5')} aria-label="今天与本周时间进度">
+        {phone ? (
+          <div className="flex flex-col gap-2">
+            <WeekSwitcher weekStart={weekStart} onChange={setWeekStart} />
+            <TimeProgressBackdrop overlay={false} weekStart={weekStart} spans={spans} todos={todos} now={now} selectedDate={selectedDay} onSelectDay={selectDay} />
+          </div>
+        ) : (
+          <>
+            <TimeProgressBackdrop weekStart={weekStart} spans={spans} todos={todos} now={now} selectedDate={selectedDay} onSelectDay={selectDay} />
+            <WeekSwitcher weekStart={weekStart} onChange={setWeekStart} />
+          </>
+        )}
       </header>
       <WorkZone
         todos={todos}
         spans={spans}
-        now={now}
+        now={now ?? 0}
         onEnter={enterWorkspace}
         onLeave={leaveWorkspace}
         onRest={startRest}
         onSelect={selectTodo}
       />
-      {view === 'week' ? (
-        <WeekOutline todos={todos} ready={todosReady} weekStart={weekStart} onTodosChanged={handleTodosChanged} onPromote={(todoId) => void promote(todoId)} onSelect={selectTodo} onOpenNotes={openNotes} onLeaveWorkspace={leaveWorkspace} />
-      ) : (
-        <WeekOutline
-          todos={todos}
-          ready={todosReady}
-          timeGrain="day"
-          weekStart={weekStart}
-          onTodosChanged={handleTodosChanged}
-          onPromote={(todoId) => void promote(todoId)}
-          onRemoveFromToday={(todoId) => void removeFromToday(todoId)}
-          onSelect={selectTodo}
-          onOpenNotes={openNotes}
-          onLeaveWorkspace={leaveWorkspace}
-        />
-      )}
+      <WeekOutline
+        todos={todos}
+        ready={todosReady}
+        timeGrain={view === 'week' ? 'week' : 'day'}
+        weekStart={weekStart}
+        onTodosChanged={handleTodosChanged}
+        onPromote={(todoId) => void promote(todoId)}
+        onRemoveFromToday={view === 'today' ? (todoId) => void removeFromToday(todoId) : undefined}
+        onSelect={selectTodo}
+        onOpenNotes={openNotes}
+        onEnterWorkspace={enterWorkspace}
+        onLeaveWorkspace={leaveWorkspace}
+        selectedId={selected?.todoId ?? null}
+        workspaceTodoIds={workspaceTodoIds}
+      />
     </section>
-    <aside className="overflow-y-auto rounded-lg border bg-card p-3">
-      <h2 className="text-sm font-semibold">{selectedDay ? '这一天' : '任务详情'}</h2>
-      {selectedDay ? (
-        <DayTimelinePanel dateKey={selectedDay} todos={todos} spans={spans} now={now} onSelectTodo={selectTodo} />
-      ) : selected ? (
-        <TaskDetailPanel
-          selected={selected}
-          selectedTodo={selectedTodo}
-          selectedParent={selectedParent}
-          selectedNotes={selectedNotes}
-          actualMs={actualMs}
-          noteDraft={noteDraft}
-          focusNotes={focusNotes}
-          onSelectTodo={selectTodo}
-          onNoteDraft={setNoteDraft}
-          onFocusNotesHandled={() => setFocusNotes(false)}
-          onAddNote={addNote}
-          onUpdateNote={updateNote}
-          onDeleteNote={deleteNote}
-          onPatchTodo={patchTodo}
-          onTagsChanged={handleTodosChanged}
-        />
-      ) : (
-        <p className="mt-3 text-xs text-muted-foreground">选择任务，或点时间条查看这一天。</p>
+    <aside className="hidden overflow-y-auto rounded-lg border bg-card p-3 md:block">
+      {!phone && (
+        <>
+          <h2 className="text-sm font-semibold">{selectedDay ? '这一天' : '任务详情'}</h2>
+          {detailBody}
+        </>
       )}
     </aside>
+    {phone && (selected || selectedDay) && (
+      <MobileSheet title={detailTitle} onClose={closeDetail}>
+        {detailBody}
+      </MobileSheet>
+    )}
   </div>
+}
+
+function formatDayTitle(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return dateKey
+  const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][date.getDay()]
+  return `${weekday} ${date.getMonth() + 1}/${date.getDate()}`
 }
 
 function formatNoteTime(iso: string) {
@@ -460,6 +546,7 @@ function InlineEdit({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const skipSave = useRef(false)
+  const noHover = useNoHover()
 
   const commit = () => {
     if (skipSave.current) {
@@ -506,7 +593,13 @@ function InlineEdit({
   }
 
   return (
-    <button type="button" title="双击编辑" onDoubleClick={start} className={className}>
+    <button
+      type="button"
+      title={noHover ? '点按编辑' : '双击编辑'}
+      onClick={noHover ? start : undefined}
+      onDoubleClick={noHover ? undefined : start}
+      className={className}
+    >
       {value ? value : emptyLabel}
     </button>
   )

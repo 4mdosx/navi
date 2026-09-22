@@ -123,6 +123,38 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* 原生滚动条不占宽度。可见滑块由 OverlayScrollbars 叠在内容上，没有轨道背景。 */
+* {
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  background: transparent;
+  display: none;
+}
+
+[data-overlay-thumb] {
+  position: fixed;
+  z-index: 70;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 32%);
+  pointer-events: auto;
+  touch-action: none;
+  cursor: grab;
+}
+
+[data-overlay-thumb]:active {
+  cursor: grabbing;
+}
+
+.dark [data-overlay-thumb] {
+  background: rgb(255 255 255 / 42%);
+}
+
 /* 隐藏滚动条但保持滚动功能 */
 .scrollbar-hide {
   -ms-overflow-style: none;  /* IE and Edge */
@@ -131,4 +163,40 @@ body {
 
 .scrollbar-hide::-webkit-scrollbar {
   display: none;  /* Chrome, Safari and Opera */
+}
+
+.touch-only {
+  display: none;
+}
+
+@media (hover: none), (max-width: 767px) {
+  .touch-only {
+    display: flex;
+  }
+
+  .hover-only {
+    display: none !important;
+  }
+
+  .touch-hit {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
+
+  .touch-row-title {
+    min-height: 2.5rem;
+  }
+}
+
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+button,
+a {
+  touch-action: manipulation;
 }

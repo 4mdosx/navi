@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Circle, GripVertical, Pencil, Play, Plus, Search, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -40,6 +41,9 @@ import { TodoActivityView } from './todo-activity-view'
 import { TodoTimelineCalendar } from './todo-timeline-calendar'
 import { TodayExecutionCenter } from './today-execution-center'
 import { AppToolbar, type WorkspaceViewId } from './app-toolbar'
+import { MobileSheet, MobileTabBar } from './mobile-chrome'
+import { closePhonePanel, openPhonePanel } from './phone-panel'
+import { usePhoneLayout } from './use-phone-layout'
 import { TagWorkspaceProvider } from './tag-workspace'
 import { StatusGlyph } from './todo-status'
 
@@ -1757,6 +1761,10 @@ export default function WeekPlanPage() {
   const [overviewOpen, setOverviewOpen] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(false)
   const [view, setView] = useState<WorkspaceViewId>('week')
+  const phone = usePhoneLayout()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const insightsFromUrl = searchParams.get('panel') === 'insights'
 
   const weekStart = formatWeekStartClient(weekAnchor)
   const isLoading = useTodoStore((s) => s.isLoading)
@@ -1825,17 +1833,30 @@ export default function WeekPlanPage() {
 
   useEffect(() => { refreshExecutionActivity() }, [refreshExecutionActivity])
 
+  const toggleInsights = useCallback(() => {
+    if (phone) {
+      if (insightsFromUrl) closePhonePanel(router)
+      else openPhonePanel(router, '/?panel=insights')
+      return
+    }
+    setInsightsOpen((open) => !open)
+  }, [phone, insightsFromUrl, router])
+  const toggleInsightsRef = useRef(toggleInsights)
+  toggleInsightsRef.current = toggleInsights
+
   useEffect(() => {
-    const toggleInsights = (event: KeyboardEvent) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return
       if (document.querySelector('[role="dialog"]:not(#todo-insights-drawer)')) return
       event.preventDefault()
       event.stopPropagation()
-      setInsightsOpen((open) => !open)
+      toggleInsightsRef.current()
     }
-    document.addEventListener('keydown', toggleInsights, true)
-    return () => document.removeEventListener('keydown', toggleInsights, true)
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => document.removeEventListener('keydown', onKeyDown, true)
   }, [])
+
+  const showInsights = phone ? insightsFromUrl : insightsOpen
 
   const yearWeekLabel = useMemo(() => getYearWeekLabel(weekAnchor), [weekAnchor])
 
@@ -1924,15 +1945,18 @@ export default function WeekPlanPage() {
 
   return (
     <TagWorkspaceProvider>
-    <div className="flex h-svh">
-      <AppToolbar
-        view={view}
-        onViewChange={setView}
-        insightsOpen={insightsOpen}
-        onToggleInsights={() => setInsightsOpen((open) => !open)}
-      />
-      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-        <div className="relative mx-auto flex h-full max-w-[90rem] flex-col overflow-hidden p-4 sm:p-6">
+    <div className="flex h-svh flex-col md:flex-row">
+      {!phone && (
+        <AppToolbar
+          className="hidden md:flex"
+          view={view}
+          onViewChange={setView}
+          insightsOpen={insightsOpen}
+          onToggleInsights={toggleInsights}
+        />
+      )}
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden max-md:pt-[env(safe-area-inset-top)]">
+        <div className="relative mx-auto flex h-full max-w-[90rem] flex-col overflow-hidden p-0 md:p-6">
           {loadError && (
             <div className="mb-4 shrink-0 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
               {loadError}
@@ -1946,9 +1970,19 @@ export default function WeekPlanPage() {
             </div>
           )}
 
-          <div className="min-h-0 flex-1 overflow-y-auto xl:overflow-hidden">
-            <section className="flex min-h-0 min-w-0 flex-col xl:h-full xl:overflow-hidden" aria-label="今日执行与任务地图">
-              <TodayExecutionCenter view={view} onViewChange={setView} todos={allTodos} todosReady={todosReady} onTodosChanged={refreshAllTodos} onExecutionChanged={refreshExecutionActivity} />
+          <div className="min-h-0 flex-1 overflow-hidden md:overflow-y-auto xl:overflow-hidden">
+            <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden md:h-auto md:overflow-visible xl:h-full xl:overflow-hidden" aria-label="今日执行与任务地图">
+              <TodayExecutionCenter
+                view={view}
+                onViewChange={(next) => {
+                  setView(next)
+                  if (phone && insightsFromUrl) closePhonePanel(router)
+                }}
+                todos={allTodos}
+                todosReady={todosReady}
+                onTodosChanged={refreshAllTodos}
+                onExecutionChanged={refreshExecutionActivity}
+              />
             </section>
           </div>
           <Dialog open={overviewOpen} onOpenChange={setOverviewOpen}>
@@ -1973,7 +2007,7 @@ export default function WeekPlanPage() {
             </DialogContent>
           </Dialog>
         </div>
-        <div className={cn('absolute inset-0 z-40 overflow-hidden', !insightsOpen && 'pointer-events-none')} aria-hidden={!insightsOpen}>
+        {!phone && <div className={cn('absolute inset-0 z-40 overflow-hidden', !insightsOpen && 'pointer-events-none')} aria-hidden={!insightsOpen}>
           <button type="button" tabIndex={insightsOpen ? 0 : -1} aria-label="收起周视图抽屉" onClick={() => setInsightsOpen(false)} className={cn('absolute inset-0 bg-black/20 backdrop-blur-[1px] transition-opacity duration-300 ease-out motion-reduce:transition-none', insightsOpen ? 'opacity-100' : 'opacity-0')} />
           <aside id="todo-insights-drawer" role="dialog" aria-modal="true" aria-label="Todo 时间与周视图" inert={!insightsOpen} className={cn('absolute inset-y-0 left-0 z-10 flex w-[min(22rem,92vw)] flex-col border-r bg-background p-3 shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', insightsOpen ? 'translate-x-0' : '-translate-x-full')}>
             <div className="mb-3 flex shrink-0 items-center justify-between border-b pb-3">
@@ -1985,8 +2019,25 @@ export default function WeekPlanPage() {
               <TodoActivityView todos={allTodos} executionSessions={executionActivity} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
             </div>
           </aside>
-        </div>
+        </div>}
+        {phone && insightsFromUrl && (
+          <MobileSheet title="周视图与投入" onClose={() => closePhonePanel(router)}>
+            <div className="grid content-start gap-3">
+              <TodoTimelineCalendar todos={allTodos} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
+              <TodoActivityView todos={allTodos} executionSessions={executionActivity} compact selectedWeekStart={weekStart} onWeekSelect={selectWeek} />
+            </div>
+          </MobileSheet>
+        )}
       </div>
+      <MobileTabBar
+        view={view}
+        insightsOpen={showInsights}
+        onViewChange={(next) => {
+          setView(next)
+          if (phone && insightsFromUrl) closePhonePanel(router)
+        }}
+        onToggleInsights={toggleInsights}
+      />
     </div>
     </TagWorkspaceProvider>
   )

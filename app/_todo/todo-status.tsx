@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Ban, Check, ChevronDown, ChevronUp, Circle, Filter, Pause, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -107,7 +107,7 @@ export function StatusFilterButton({
         type="button"
         size="sm"
         variant="outline"
-        className={cn('h-7 gap-1 px-2 text-[11px]', filtered && 'border-primary/40 bg-primary/5')}
+        className={cn('h-9 gap-1 px-2 text-xs md:h-7 md:text-[11px]', filtered && 'border-primary/40 bg-primary/5')}
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -165,6 +165,7 @@ export function StatusPicker({
   onChange: (status: TodoStatus) => void
 }) {
   const { open, setOpen, rootRef } = useMenuOpen()
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({})
   const token = STATUS_TOKEN[status]
 
   return (
@@ -179,13 +180,27 @@ export function StatusPicker({
         onClick={(event) => {
           event.preventDefault()
           event.stopPropagation()
-          if (!disabled) setOpen((current) => !current)
+          if (disabled) return
+          if (open) {
+            setOpen(false)
+            return
+          }
+          const rect = event.currentTarget.getBoundingClientRect()
+          const menuHeight = 12 + TODO_STATUSES.length * 40
+          const openUp = rect.bottom + menuHeight > window.innerHeight && rect.top > menuHeight
+          setMenuStyle({
+            position: 'fixed',
+            left: Math.max(8, Math.min(rect.left, window.innerWidth - 128)),
+            top: openUp ? Math.max(8, rect.top - menuHeight) : rect.bottom + 4,
+            width: '7.5rem',
+          })
+          setOpen(true)
         }}
         className={cn(
           'flex items-center justify-center disabled:opacity-50',
           compact
-            ? cn('size-6 rounded', token.bg)
-            : cn('h-7 gap-1 rounded-md border px-2 text-[11px] font-medium', token.bg, token.border),
+            ? cn('touch-hit size-6 rounded', token.bg)
+            : cn('h-9 gap-1 rounded-md border px-2 text-xs font-medium md:h-7 md:text-[11px]', token.bg, token.border),
         )}
       >
         <StatusGlyph status={status} />
@@ -199,7 +214,8 @@ export function StatusPicker({
       {open && (
         <div
           role="listbox"
-          className="absolute left-0 z-30 mt-1 w-28 rounded-md border bg-background p-1 shadow-md"
+          style={menuStyle}
+          className="z-50 rounded-md border bg-background p-1 shadow-md"
         >
           {TODO_STATUSES.map((item) => (
             <button
@@ -215,7 +231,7 @@ export function StatusPicker({
                 if (item !== status) onChange(item)
               }}
               className={cn(
-                'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted',
+                'flex min-h-10 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted md:min-h-0 md:py-1.5 md:text-xs',
                 item === status && 'bg-muted font-medium',
               )}
             >
@@ -245,24 +261,24 @@ export function EstimatedMinutesControl({
       <span className="text-muted-foreground">预计</span>
       <span className="min-w-6 text-center text-sm font-medium tabular-nums">{minutes}</span>
       <span className="text-muted-foreground">分钟</span>
-      <div className="ml-1 flex flex-col overflow-hidden rounded border">
-        <button
-          type="button"
-          aria-label={`增加 ${step} 分钟`}
-          disabled={disabled}
-          onClick={() => onChange(minutes + step)}
-          className="flex h-4 w-6 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-        >
-          <ChevronUp className="size-3.5" />
-        </button>
+      <div className="ml-1 flex items-center overflow-hidden rounded-md border">
         <button
           type="button"
           aria-label={`减少 ${step} 分钟`}
           disabled={disabled || minutes <= 0}
           onClick={() => onChange(Math.max(0, minutes - step))}
-          className="flex h-4 w-6 items-center justify-center border-t text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+          className="flex size-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
         >
           <ChevronDown className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          aria-label={`增加 ${step} 分钟`}
+          disabled={disabled}
+          onClick={() => onChange(minutes + step)}
+          className="flex size-8 items-center justify-center border-l text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+        >
+          <ChevronUp className="size-3.5" />
         </button>
       </div>
     </div>

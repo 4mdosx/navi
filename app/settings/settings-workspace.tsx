@@ -62,7 +62,7 @@ export default function SettingsWorkspace({
 
   return (
     <div className="flex h-svh flex-col bg-background">
-      <header className="flex shrink-0 items-center gap-3 border-b px-3 py-2 sm:px-4">
+      <header className="flex shrink-0 items-center gap-3 border-b px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4">
         <Link
           href="/"
           className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -83,12 +83,12 @@ export default function SettingsWorkspace({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <nav
           aria-label="设置分类"
-          className="w-44 shrink-0 border-r bg-muted/20 sm:w-56"
+          className="shrink-0 border-b bg-muted/20 md:w-56 md:border-b-0 md:border-r"
         >
-          <ul className="flex flex-col gap-0.5 p-2">
+          <ul className="flex gap-1 overflow-x-auto p-2 md:flex-col">
             {visibleTabs.map((tab) => {
               const Icon = tab.icon
               const selected = tab.id === activeTab
@@ -99,10 +99,10 @@ export default function SettingsWorkspace({
                     onClick={() => selectTab(tab.id)}
                     aria-current={selected ? 'page' : undefined}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-md border-l-2 px-2.5 py-1.5 text-left text-sm transition-colors',
+                      'flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-left text-sm whitespace-nowrap transition-colors md:w-full md:border-l-2 md:px-2.5 md:py-1.5',
                       selected
-                        ? 'border-l-foreground bg-muted font-medium text-foreground'
-                        : 'border-l-transparent text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                        ? 'bg-muted font-medium text-foreground md:border-l-foreground'
+                        : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground md:border-l-transparent'
                     )}
                   >
                     <Icon className="size-3.5 shrink-0" />

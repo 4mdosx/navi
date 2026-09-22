@@ -190,6 +190,28 @@ export function filterOutlineByStatuses(todos: Todo[], statuses: ReadonlySet<Tod
   return withNotesOfVisible(list, visible)
 }
 
+function branchTagIds(todo: Todo, byId: Map<string, Todo>): string[] {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  let current: Todo | undefined = todo
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    ids.push(...tagIdsOf(current))
+    current = current.parentId ? byId.get(current.parentId) : undefined
+  }
+  return ids
+}
+
+function excludedByBranch(
+  todo: Todo,
+  byId: Map<string, Todo>,
+  excludeTags: readonly string[],
+): boolean {
+  if (excludeTags.length === 0) return false
+  const exclude = new Set(excludeTags)
+  return branchTagIds(todo, byId).some((id) => exclude.has(id))
+}
+
 export function filterOutlineByFocusMode(todos: Todo[], mode?: Parameters<typeof matchesFocusMode>[1]): Todo[] {
   if (!mode) return todos
   const list = todos.filter(Boolean)
@@ -197,10 +219,24 @@ export function filterOutlineByFocusMode(todos: Todo[], mode?: Parameters<typeof
   const visible = new Set<string>()
   for (const todo of list) {
     if (todo.kind === 'note' || todo.kind === 'rest') continue
-    if (matchesFocusMode(tagIdsOf(todo), mode)) visible.add(todo.id)
+    if (matchesFocusMode(branchTagIds(todo, byId), mode)) visible.add(todo.id)
   }
-  withAncestors(list, visible, byId)
-  return withNotesOfVisible(list, visible)
+  for (const id of [...visible]) {
+    let parentId = byId.get(id)?.parentId
+    const seen = new Set<string>()
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId)
+      const parent = byId.get(parentId)
+      if (!parent || excludedByBranch(parent, byId, mode.excludeTags)) break
+      visible.add(parent.id)
+      parentId = parent.parentId
+    }
+  }
+  for (const todo of list) {
+    if (todo.kind !== 'note' || !todo.parentId || !visible.has(todo.parentId)) continue
+    if (matchesFocusMode(branchTagIds(todo, byId), mode)) visible.add(todo.id)
+  }
+  return list.filter((todo) => visible.has(todo.id))
 }
 
 export function selectLinkedOutline(todos: Todo[], grain: TimeGrain, date?: string): Todo[] {

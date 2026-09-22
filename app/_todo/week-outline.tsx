@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, GripVertical, Plus } from 'lucide-react'
+import { ChevronDown, GripVertical, MoreHorizontal, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -30,7 +30,9 @@ import {
   type TodoStatus,
 } from '@/types/todo'
 import { StatusFilterButton, StatusGlyph, StatusPicker } from './todo-status'
-import { TagManagerButton } from './todo-tags'
+import { FocusModeTool, TagManagerButton } from './todo-tags'
+import { MobileAction, MobileActionSheet } from './mobile-chrome'
+import { usePhoneLayout } from './use-phone-layout'
 import { useTagWorkspace } from './tag-workspace'
 import { OUTLINE_DRAG_TYPE, hasWorkspaceDrag, WORKSPACE_DRAG_TYPE } from './todo-drag'
 
@@ -89,7 +91,10 @@ export function WeekOutline({
   onRemoveFromToday,
   onSelect,
   onOpenNotes,
+  onEnterWorkspace,
   onLeaveWorkspace,
+  selectedId,
+  workspaceTodoIds,
 }: {
   todos: Todo[]
   ready?: boolean
@@ -100,7 +105,10 @@ export function WeekOutline({
   onRemoveFromToday?: (todoId: string) => void
   onSelect?: (todo: Todo) => void
   onOpenNotes?: (todo: Todo) => void
+  onEnterWorkspace?: (todoId: string) => void
   onLeaveWorkspace?: (todoId: string) => void
+  selectedId?: string | null
+  workspaceTodoIds?: ReadonlySet<string>
 }) {
   const [adding, setAdding] = useState<Adding | null>(null)
   const [draft, setDraft] = useState('')
@@ -112,6 +120,8 @@ export function WeekOutline({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   const [statusFilter, setStatusFilter] = useState<Set<TodoStatus>>(() => new Set(TODO_STATUSES))
+  const [menuId, setMenuId] = useState<string | null>(null)
+  const phone = usePhoneLayout()
   const { activeFocusMode } = useTagWorkspace()
   const commandPressed = useCommandPressed()
   const todayKey = formatDateKey(new Date())
@@ -201,7 +211,7 @@ export function WeekOutline({
     }
   }
 
-  const deleteNode = async (todo: OutlineTreeNode) => {
+  const deleteNode = async (todo: Todo) => {
     if (saving || isNoteKind(todo.kind)) return
     setSaving(true)
     setError(null)
@@ -283,6 +293,16 @@ export function WeekOutline({
     }
   }
 
+  const nudgeNode = (id: string, direction: -1 | 1) => {
+    const source = visible.find((todo) => todo.id === id)
+    if (!source) return
+    const siblings = siblingTasks(visible, source.parentId)
+    const index = siblings.findIndex((todo) => todo.id === id)
+    const neighbor = siblings[index + direction]
+    if (!neighbor) return
+    void moveNode(id, { id: neighbor.id, position: direction < 0 ? 'before' : 'after' })
+  }
+
   const toggleCollapse = (id: string) => {
     setCollapsed((current) => {
       const next = new Set(current)
@@ -349,6 +369,14 @@ export function WeekOutline({
     return true
   }
 
+  const menuTodo = menuId ? visible.find((todo) => todo.id === menuId) ?? null : null
+  const menuSiblings = menuTodo ? siblingTasks(visible, menuTodo.parentId) : []
+  const menuIndex = menuTodo ? menuSiblings.findIndex((todo) => todo.id === menuTodo.id) : -1
+  const menuCanChange = menuTodo != null && (!isTodayView || (operableIds?.has(menuTodo.id) ?? false))
+  const menuAlreadyToday = menuTodo ? scheduledIds.has(menuTodo.id) : false
+  const menuCanSchedule = Boolean(onPromote && menuTodo && menuTodo.status !== 'done' && menuTodo.status !== 'cancelled' && !menuAlreadyToday)
+  const menuCanRemove = Boolean(onRemoveFromToday && isTodayView && menuAlreadyToday)
+
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -361,12 +389,12 @@ export function WeekOutline({
     >
       {error && <p className="shrink-0 px-3 py-2 text-xs text-destructive">{error}</p>}
 
-      <div className="flex shrink-0 items-center gap-1.5 px-3 pt-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-3 pt-3">
         <Button
           type="button"
           size="sm"
           variant="outline"
-          className="h-7 gap-1 px-2 text-[11px]"
+          className="h-9 gap-1 px-3 text-xs md:h-7 md:px-2 md:text-[11px]"
           onClick={() => startAdd(null, 'action')}
           disabled={saving || (addingRoot && Boolean(adding))}
         >
@@ -375,6 +403,7 @@ export function WeekOutline({
         </Button>
         <StatusFilterButton selected={statusFilter} onChange={setStatusFilter} />
         <TagManagerButton onChanged={onTodosChanged} />
+        {phone && <FocusModeTool presentation="inline" />}
       </div>
 
       <div
@@ -458,6 +487,9 @@ export function WeekOutline({
                 onRemoveFromToday={onRemoveFromToday}
                 onSelect={onSelect}
                 onOpenNotes={onOpenNotes}
+                selectedId={selectedId}
+                workspaceTodoIds={workspaceTodoIds}
+                onOpenMenu={setMenuId}
                 onDragStart={(id) => { setDraggingId(id); setDropTarget(null) }}
                 onDragOver={(next) => setDropTarget(next)}
                 onDrop={(id, next) => { void moveNode(id, next) }}
@@ -467,6 +499,43 @@ export function WeekOutline({
           </div>
         )}
       </div>
+      {menuTodo && (
+        <TaskTouchMenu
+          todo={menuTodo}
+          canMoveUp={menuIndex > 0}
+          canMoveDown={menuIndex >= 0 && menuIndex < menuSiblings.length - 1}
+          canSchedule={menuCanSchedule}
+          canRemoveFromToday={menuCanRemove}
+          canAddChild={menuCanChange}
+          inWorkspace={workspaceTodoIds?.has(menuTodo.id) ?? false}
+          onClose={() => setMenuId(null)}
+          onEdit={() => {
+            setMenuId(null)
+            setEditingId(menuTodo.id)
+            setEditTitle(menuTodo.title)
+          }}
+          onAddChild={() => {
+            setMenuId(null)
+            startAdd(menuTodo.id, 'action')
+          }}
+          onNotes={() => {
+            setMenuId(null)
+            ;(onOpenNotes ?? onSelect)?.(menuTodo)
+          }}
+          onPromote={onPromote ? () => { setMenuId(null); onPromote(menuTodo.id) } : undefined}
+          onRemoveFromToday={onRemoveFromToday ? () => { setMenuId(null); onRemoveFromToday(menuTodo.id) } : undefined}
+          onEnter={onEnterWorkspace ? () => { setMenuId(null); onEnterWorkspace(menuTodo.id) } : undefined}
+          onLeave={onLeaveWorkspace ? () => { setMenuId(null); onLeaveWorkspace(menuTodo.id) } : undefined}
+          onNudge={(direction) => {
+            setMenuId(null)
+            nudgeNode(menuTodo.id, direction)
+          }}
+          onDelete={() => {
+            setMenuId(null)
+            void deleteNode(menuTodo)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -501,6 +570,9 @@ function OutlineRow({
   onRemoveFromToday,
   onSelect,
   onOpenNotes,
+  selectedId,
+  workspaceTodoIds,
+  onOpenMenu,
   onDragStart,
   onDragOver,
   onDrop,
@@ -535,6 +607,9 @@ function OutlineRow({
   onRemoveFromToday?: (todoId: string) => void
   onSelect?: (todo: Todo) => void
   onOpenNotes?: (todo: Todo) => void
+  selectedId?: string | null
+  workspaceTodoIds?: ReadonlySet<string>
+  onOpenMenu?: (id: string) => void
   onDragStart: (id: string) => void
   onDragOver: (target: DropTarget) => void
   onDrop: (sourceId: string, target: DropTarget) => void
@@ -553,6 +628,8 @@ function OutlineRow({
   const dropPosition = isDropTarget ? dropTarget.position : null
   const editing = editingId === node.id
   const canDrag = !editing && !saving
+  const selected = selectedId === node.id
+  const inWorkspace = workspaceTodoIds?.has(node.id) ?? false
   const alreadyToday = scheduledIds.has(node.id)
   const canChangeStatus = !isTodayView || (operableIds?.has(node.id) ?? false)
   const canSchedule = Boolean(onPromote) && node.status !== 'done' && node.status !== 'cancelled' && !alreadyToday
@@ -608,6 +685,7 @@ function OutlineRow({
           hasChildren && 'mt-2 first:mt-0',
           isDragging && 'opacity-40',
           !isDropTarget && 'hover:bg-neutral-200 dark:hover:bg-neutral-700',
+          selected && 'bg-muted',
           dropPosition === 'into' && 'bg-emerald-500/15 ring-1 ring-inset ring-emerald-400',
         )}
       >
@@ -624,7 +702,7 @@ function OutlineRow({
           onDragStart={startDrag}
           onDragEnd={onDragEnd}
           className={cn(
-            'mt-1 flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors',
+            'hover-only mt-1 flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors',
             canDrag && 'cursor-grab hover:bg-background hover:text-foreground active:cursor-grabbing group-hover:text-foreground',
           )}
         >
@@ -637,7 +715,7 @@ function OutlineRow({
               event.stopPropagation()
               onToggleCollapse(node.id)
             }}
-            className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+            className="touch-hit flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
             aria-label={isCollapsed ? '展开' : '收起'}
           >
             <ChevronDown className={cn('size-3.5 transition-transform', isCollapsed && '-rotate-90')} />
@@ -658,7 +736,7 @@ function OutlineRow({
             aria-label={`把 ${node.title} 加入今天`}
             title="加入今天"
             onClick={() => onPromote?.(node.id)}
-            className="flex size-6 shrink-0 items-center justify-center rounded border border-primary/30 text-primary hover:bg-primary/10"
+            className="touch-hit flex size-6 shrink-0 items-center justify-center rounded border border-primary/30 text-primary hover:bg-primary/10"
           >
             <Plus className="size-3.5" />
           </button>
@@ -680,7 +758,7 @@ function OutlineRow({
                 }
                 if (event.key === 'Escape') onStartEdit(node)
               }}
-              className="h-6 text-sm"
+              className="h-10 text-base md:h-6 md:text-sm"
               autoFocus
             />
           ) : (
@@ -695,12 +773,13 @@ function OutlineRow({
                 onStartEdit(node)
               }}
               className={cn(
-                'flex min-h-6 w-full items-center gap-1.5 rounded px-0.5 text-left text-sm leading-6 hover:text-foreground group-hover:font-semibold',
+                'touch-row-title flex min-h-6 w-full items-center gap-1.5 rounded px-0.5 text-left text-sm leading-6 hover:text-foreground group-hover:font-semibold',
                 hasChildren && 'font-semibold',
                 !canChangeStatus && 'text-muted-foreground',
                 (node.status === 'done' || node.status === 'cancelled') && 'text-muted-foreground line-through',
               )}
             >
+              {inWorkspace && <span className="size-1.5 shrink-0 rounded-full bg-sky-500" title="在工作区" />}
               <span className="min-w-0 truncate">{node.title}</span>
               {delayDays > 0 && (
                 <span className="shrink-0 rounded bg-amber-100 px-1 py-px text-[10px] font-normal tabular-nums text-amber-800 dark:bg-amber-950 dark:text-amber-200">
@@ -713,7 +792,18 @@ function OutlineRow({
             <p className="text-[10px] leading-4 tabular-nums text-muted-foreground">{progress.done}/{progress.total} 完成</p>
           )}
         </div>
-        <div className="flex h-6 shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          aria-label={`${node.title} 的更多操作`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenMenu?.(node.id)
+          }}
+          className="touch-only size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground active:bg-background"
+        >
+          <MoreHorizontal className="size-4" />
+        </button>
+        <div className="hover-only flex h-6 shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
           {canChangeStatus && (
             <button type="button" onClick={() => onStartAdd(node.id, 'action')} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-background hover:text-foreground" title="挂一个衍生任务">
               <Plus className="mr-0.5 inline size-3" />子任务
@@ -808,6 +898,9 @@ function OutlineRow({
               onRemoveFromToday={onRemoveFromToday}
               onSelect={onSelect}
               onOpenNotes={onOpenNotes}
+              selectedId={selectedId}
+              workspaceTodoIds={workspaceTodoIds}
+              onOpenMenu={onOpenMenu}
               onDragStart={onDragStart}
               onDragOver={onDragOver}
               onDrop={onDrop}
@@ -854,11 +947,83 @@ function AddRow({
           if (event.key === 'Escape') onCancel()
         }}
         placeholder={`新的${label}`}
-        className="h-7 text-sm"
+        className="h-10 text-base md:h-7 md:text-sm"
         autoFocus
       />
-      <Button type="submit" size="sm" className="h-7 px-2 text-[11px]" disabled={saving || !value.trim()}>添加</Button>
-      <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={onCancel}>取消</Button>
+      <Button type="submit" size="sm" className="h-10 px-3 text-sm md:h-7 md:px-2 md:text-[11px]" disabled={saving || !value.trim()}>添加</Button>
+      <Button type="button" size="sm" variant="ghost" className="h-10 px-3 text-sm md:h-7 md:px-2 md:text-[11px]" onClick={onCancel}>取消</Button>
     </form>
+  )
+}
+
+function TaskTouchMenu({
+  todo,
+  canMoveUp,
+  canMoveDown,
+  canSchedule,
+  canRemoveFromToday,
+  canAddChild,
+  inWorkspace,
+  onClose,
+  onEdit,
+  onAddChild,
+  onNotes,
+  onPromote,
+  onRemoveFromToday,
+  onEnter,
+  onLeave,
+  onNudge,
+  onDelete,
+}: {
+  todo: Todo
+  canMoveUp: boolean
+  canMoveDown: boolean
+  canSchedule: boolean
+  canRemoveFromToday: boolean
+  canAddChild: boolean
+  inWorkspace: boolean
+  onClose: () => void
+  onEdit: () => void
+  onAddChild: () => void
+  onNotes: () => void
+  onPromote?: () => void
+  onRemoveFromToday?: () => void
+  onEnter?: () => void
+  onLeave?: () => void
+  onNudge: (direction: -1 | 1) => void
+  onDelete: () => void
+}) {
+  const [confirming, setConfirming] = useState(false)
+
+  return (
+    <MobileActionSheet title={todo.title} onClose={onClose}>
+      {confirming ? (
+        <div className="grid gap-3 px-4 py-3">
+          <p className="text-sm">删除这个任务后，它的子任务也会一起删除。</p>
+          <div className="flex gap-2">
+            <Button type="button" variant="destructive" className="h-10 flex-1" onClick={onDelete}>
+              删除
+            </Button>
+            <Button type="button" variant="outline" className="h-10 flex-1" onClick={() => setConfirming(false)}>
+              取消
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {inWorkspace
+            ? onLeave && <MobileAction label="移出工作区" onSelect={onLeave} />
+            : onEnter && <MobileAction label="开始" onSelect={onEnter} />}
+          <MobileAction label="备注" onSelect={onNotes} />
+          {canAddChild && <MobileAction label="添加子任务" onSelect={onAddChild} />}
+          <MobileAction label="编辑标题" onSelect={onEdit} />
+          {canSchedule && onPromote && <MobileAction label="加入今天" onSelect={onPromote} />}
+          {canRemoveFromToday && onRemoveFromToday && <MobileAction label="移出今日" onSelect={onRemoveFromToday} />}
+          <MobileAction label="上移" disabled={!canMoveUp} onSelect={() => onNudge(-1)} />
+          <MobileAction label="下移" disabled={!canMoveDown} onSelect={() => onNudge(1)} />
+          <MobileAction label="删除" destructive onSelect={() => setConfirming(true)} />
+        </>
+      )}
+    </MobileActionSheet>
   )
 }

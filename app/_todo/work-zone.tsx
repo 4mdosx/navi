@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Coffee, GripVertical } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useNoHover } from './use-phone-layout'
 import type { Todo, TodoTimeSpan } from '@/types/todo'
 import { isNoteKind, isRestKind } from '@/types/todo'
 import { sessionLimitMs } from '@/lib/todo-session'
@@ -25,7 +26,7 @@ function RestButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-6 items-center gap-1 rounded-md border border-neutral-200 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground dark:border-neutral-800"
+      className="touch-hit inline-flex h-6 items-center gap-1 rounded-md border border-neutral-200 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground dark:border-neutral-800"
     >
       <Coffee className="size-3" />
       休息
@@ -51,6 +52,7 @@ export function WorkZone({
   onSelect?: (todo: Todo) => void
 }) {
   const [over, setOver] = useState(false)
+  const noHover = useNoHover()
   const todoById = new Map(todos.map((todo) => [todo.id, todo]))
   const openSpans = spans.filter((span) => span.endedAt == null)
   const items = openSpans
@@ -99,7 +101,7 @@ export function WorkZone({
             <button
               type="button"
               onClick={() => onLeave(restItem.todo.id)}
-              className="inline-flex h-6 items-center rounded-md border border-amber-300 bg-background px-2 text-[11px] text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-950"
+              className="touch-hit inline-flex h-8 items-center rounded-md border border-amber-300 bg-background px-2 text-[11px] text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-950"
             >
               结束
             </button>
@@ -119,7 +121,7 @@ export function WorkZone({
           </div>
           {workItems.length === 0 ? (
             <div className="flex min-h-10 flex-1 items-center justify-center gap-3">
-              <p className="text-[11px] text-muted-foreground">拖入开始</p>
+              <p className="text-[11px] text-muted-foreground">{noHover ? '在任务菜单里点「开始」' : '拖入开始'}</p>
               <RestButton onClick={onRest} />
             </div>
           ) : (
@@ -151,7 +153,7 @@ export function WorkZone({
                     type="button"
                     aria-label={`把 ${todo.title} 移出工作区`}
                     onClick={() => onLeave(todo.id)}
-                    className="ml-0.5 rounded px-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="touch-hit ml-0.5 rounded px-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     移出
                   </button>
