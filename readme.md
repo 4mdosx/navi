@@ -15,8 +15,8 @@
 ## 快速开始
 
 ```bash
-npm install
-cp .env.template .env
+npm ci
+cp .env.example .env
 npm run init-db
 npm run dev
 ```
@@ -69,6 +69,7 @@ navi/
 ## 构建
 
 ```bash
+npm ci
 npm run build
 npm start
 ```
