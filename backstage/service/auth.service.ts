@@ -17,8 +17,11 @@ import {
   verifyStoredPin,
 } from './pin.service'
 
-const secretKey = process.env.SESSION_SECRET
-const encodedKey = new TextEncoder().encode(secretKey)
+function sessionKey(): Uint8Array | undefined {
+  const secret = process.env['SESSION_SECRET']
+  if (!secret) return
+  return new TextEncoder().encode(secret)
+}
 
 function endOfLocalDay(now = new Date()): Date {
   const expiresAt = new Date(now)
@@ -27,16 +30,22 @@ function endOfLocalDay(now = new Date()): Date {
 }
 
 export async function encrypt(payload: SessionPayload) {
+  const key = sessionKey()
+  if (!key) throw new Error('SESSION_SECRET is not set')
+
   return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(payload.expiresAt)
-    .sign(encodedKey)
+    .sign(key)
 }
 
 export async function decrypt(session: string | undefined = '') {
+  const key = sessionKey()
+  if (!key) return
+
   try {
-    const { payload } = await jwtVerify(session, encodedKey, {
+    const { payload } = await jwtVerify(session, key, {
       algorithms: ['HS256'],
     })
     return {

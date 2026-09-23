@@ -16,7 +16,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  const secret = process.env.SESSION_SECRET
+  const secret = process.env['SESSION_SECRET']
   const session = request.cookies.get('session')?.value
   if (!secret || !session) {
     return deny(request)
