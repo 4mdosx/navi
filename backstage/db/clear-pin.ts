@@ -7,7 +7,7 @@
  *   或 DB_FILE_NAME=/path/to/local.db npm run clear-pin
  */
 import { config } from 'dotenv'
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import path from 'path'
 
 config()
@@ -20,7 +20,7 @@ const PIN_KEYS = ['pin.hash', 'pin.epoch', 'pin.updatedAt']
 
 function clearPin(): void {
   console.log(`Using database: ${dbPath}`)
-  const sqlite = new Database(dbPath)
+  const sqlite = new DatabaseSync(dbPath)
 
   try {
     sqlite.exec(`
@@ -35,7 +35,7 @@ function clearPin(): void {
       .prepare(`DELETE FROM settings WHERE key IN (${PIN_KEYS.map(() => '?').join(', ')})`)
       .run(...PIN_KEYS)
 
-    if (result.changes > 0) {
+    if (Number(result.changes) > 0) {
       console.log('PIN 已清除。下次进入页面需要重新设置。')
     } else {
       console.log('当前没有设置 PIN。')

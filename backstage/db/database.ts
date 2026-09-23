@@ -1,16 +1,17 @@
 import 'server-only'
-import { Kysely, SqliteDialect } from 'kysely'
-import Database from 'better-sqlite3'
 import path from 'path'
-import type { Database as DatabaseType } from './types'
+import { DatabaseSync } from 'node:sqlite'
+import { drizzle, type NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite'
 import { migrateTodoDomain } from './todo-migrate'
 import { migrateExecutionDomain } from './execution-migrate'
+
+export type AppDatabase = NodeSQLiteDatabase
 
 const dbPath = process.env.DB_FILE_NAME
   ? process.env.DB_FILE_NAME.replace(/^file:/, '')
   : path.join(process.cwd(), 'local.db')
 
-const sqlite = new Database(dbPath)
+const sqlite = new DatabaseSync(dbPath)
 
 let schemaVersionApplied = 0
 const SCHEMA_VERSION = 10
@@ -40,25 +41,18 @@ function ensureSchema(): void {
 }
 
 const globalForDb = globalThis as unknown as {
-  db: Kysely<DatabaseType> | undefined
+  db: AppDatabase | undefined
 }
 
-export async function getDatabase(): Promise<Kysely<DatabaseType>> {
+export async function getDatabase(): Promise<AppDatabase> {
   ensureSchema()
   if (!globalForDb.db) {
-    globalForDb.db = new Kysely<DatabaseType>({
-      dialect: new SqliteDialect({
-        database: sqlite,
-      }),
-    })
+    globalForDb.db = drizzle({ client: sqlite })
   }
   return globalForDb.db
 }
 
 export async function closeDatabase(): Promise<void> {
-  if (globalForDb.db) {
-    await globalForDb.db.destroy()
-    globalForDb.db = undefined
-  }
+  globalForDb.db = undefined
   sqlite.close()
 }

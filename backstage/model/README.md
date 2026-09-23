@@ -1,6 +1,6 @@
 # Model 层
 
-Model 层负责数据访问，使用 Kysely ORM。
+Model 层负责数据访问，使用 Drizzle 和 Node 自带的 `node:sqlite`。
 
 ## 职责
 
@@ -12,16 +12,13 @@ Model 层负责数据访问，使用 Kysely ORM。
 ## 示例
 
 ```typescript
-// user.model.ts
+import { eq } from 'drizzle-orm'
 import { getDatabase } from '../db/database'
-import type { Database } from '../db/types'
+import { todos } from '../db/schema'
 
-export async function getUserById(id: string) {
-  const db = getDatabase()
-  return db
-    .selectFrom('users')
-    .selectAll()
-    .where('id', '=', id)
-    .executeTakeFirst()
+export async function getTodoById(id: string) {
+  const db = await getDatabase()
+  const [row] = await db.select().from(todos).where(eq(todos.id, id)).limit(1)
+  return row
 }
 ```

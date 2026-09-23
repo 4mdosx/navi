@@ -8,7 +8,7 @@
  *   或 tsx backstage/db/init-db.ts
  */
 
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import path from 'path'
 import { migrateTodoDomain } from './todo-migrate'
 import { migrateExecutionDomain } from './execution-migrate'
@@ -20,7 +20,7 @@ const dbPath = process.env.DB_FILE_NAME
 function initializeDatabase(): void {
   console.log(`Initializing database at: ${dbPath}`)
 
-  const sqlite = new Database(dbPath)
+  const sqlite = new DatabaseSync(dbPath)
 
   try {
     sqlite.exec(`

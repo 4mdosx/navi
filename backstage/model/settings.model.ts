@@ -1,54 +1,33 @@
 'use server'
 import 'server-only'
+import { eq } from 'drizzle-orm'
 import { getDatabase } from '../db/database'
-import type { Database } from '../db/types'
+import { settings } from '../db/schema'
 
-/**
- * 获取设置值
- */
 export async function getSetting(key: string): Promise<string | null> {
   const db = await getDatabase()
-  const result = await db
-    .selectFrom('settings')
-    .select(['value'])
-    .where('key', '=', key)
-    .executeTakeFirst()
+  const [result] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, key))
+    .limit(1)
 
   return result?.value ?? null
 }
 
-/**
- * 设置值
- */
 export async function setSetting(key: string, value: string): Promise<void> {
   const db = await getDatabase()
-  const now = new Date()
-  // SQLite3 需要字符串格式的日期，而不是 Date 对象
-  const updatedAtString = now.toISOString()
+  const updatedAt = new Date().toISOString()
   await db
-    .insertInto('settings')
-    .values({
-      key,
-      value,
-      updatedAt: updatedAtString as any, // SQLite 存储为 TEXT，Kysely 会处理转换
+    .insert(settings)
+    .values({ key, value, updatedAt })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value, updatedAt },
     })
-    .onConflict((oc) => oc
-      .column('key')
-      .doUpdateSet({
-        value,
-        updatedAt: updatedAtString as any,
-      })
-    )
-    .execute()
 }
 
-/**
- * 删除设置
- */
 export async function deleteSetting(key: string): Promise<void> {
   const db = await getDatabase()
-  await db
-    .deleteFrom('settings')
-    .where('key', '=', key)
-    .execute()
+  await db.delete(settings).where(eq(settings.key, key))
 }

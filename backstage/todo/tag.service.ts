@@ -1,6 +1,8 @@
 import 'server-only'
 import { nanoid } from 'nanoid'
+import { asc, eq, inArray } from 'drizzle-orm'
 import { getDatabase } from '@/backstage/db/database'
+import { focusModes, tags, todoTags, todos } from '@/backstage/db/schema'
 import { INCLUDE_ALL, normalizeTagName, type Tag } from '@/types/tag'
 
 function mapTag(row: Tag): Tag {
@@ -13,13 +15,13 @@ function isUniqueError(error: unknown) {
 
 export async function listTags(): Promise<Tag[]> {
   const db = await getDatabase()
-  const rows = await db.selectFrom('tags').selectAll().orderBy('name').execute()
+  const rows = await db.select().from(tags).orderBy(asc(tags.name))
   return rows.map(mapTag)
 }
 
 export async function getTag(id: string): Promise<Tag> {
   const db = await getDatabase()
-  const row = await db.selectFrom('tags').selectAll().where('id', '=', id).executeTakeFirst()
+  const [row] = await db.select().from(tags).where(eq(tags.id, id)).limit(1)
   if (!row) throw new Error('标签不存在')
   return mapTag(row)
 }
@@ -43,7 +45,7 @@ export async function createTag(name: string): Promise<Tag> {
     updatedAt: now,
   }
   try {
-    await db.insertInto('tags').values(row).execute()
+    await db.insert(tags).values(row)
   } catch (error) {
     if (isUniqueError(error)) throw new Error('标签已存在')
     throw error
@@ -73,7 +75,7 @@ export async function updateTag(id: string, name: string): Promise<Tag> {
   const db = await getDatabase()
   const now = new Date().toISOString()
   try {
-    await db.updateTable('tags').set({ name: normalized, updatedAt: now }).where('id', '=', id).execute()
+    await db.update(tags).set({ name: normalized, updatedAt: now }).where(eq(tags.id, id))
   } catch (error) {
     if (isUniqueError(error)) throw new Error('标签已存在')
     throw error
@@ -93,7 +95,7 @@ function parseIdArray(value: string): string[] {
 export async function deleteTag(id: string): Promise<void> {
   await getTag(id)
   const db = await getDatabase()
-  const modes = await db.selectFrom('focus_modes').selectAll().execute()
+  const modes = await db.select().from(focusModes)
   for (const mode of modes) {
     const includeTags = parseIdArray(mode.includeTags).filter((item) => item !== id)
     const excludeTags = parseIdArray(mode.excludeTags).filter((item) => item !== id)
@@ -101,31 +103,29 @@ export async function deleteTag(id: string): Promise<void> {
       includeTags.length === parseIdArray(mode.includeTags).length
       && excludeTags.length === parseIdArray(mode.excludeTags).length
     ) continue
-    await db.updateTable('focus_modes').set({
+    await db.update(focusModes).set({
       includeTags: JSON.stringify(includeTags.length > 0 ? includeTags : [INCLUDE_ALL]),
       excludeTags: JSON.stringify(excludeTags),
       updatedAt: new Date().toISOString(),
-    }).where('id', '=', mode.id).execute()
+    }).where(eq(focusModes.id, mode.id))
   }
-  await db.deleteFrom('tags').where('id', '=', id).execute()
+  await db.delete(tags).where(eq(tags.id, id))
 }
 
 export async function tagsForTodos(ids: string[]): Promise<Map<string, Tag[]>> {
   const grouped = new Map<string, Tag[]>()
   if (ids.length === 0) return grouped
   const db = await getDatabase()
-  const rows = await db.selectFrom('todo_tags')
-    .innerJoin('tags', 'tags.id', 'todo_tags.tagId')
-    .select([
-      'todo_tags.todoId as todoId',
-      'tags.id as id',
-      'tags.name as name',
-      'tags.createdAt as createdAt',
-      'tags.updatedAt as updatedAt',
-    ])
-    .where('todo_tags.todoId', 'in', ids)
-    .orderBy('tags.name')
-    .execute()
+  const rows = await db.select({
+    todoId: todoTags.todoId,
+    id: tags.id,
+    name: tags.name,
+    createdAt: tags.createdAt,
+    updatedAt: tags.updatedAt,
+  }).from(todoTags)
+    .innerJoin(tags, eq(tags.id, todoTags.tagId))
+    .where(inArray(todoTags.todoId, ids))
+    .orderBy(asc(tags.name))
   for (const row of rows) {
     const list = grouped.get(row.todoId) ?? []
     list.push({ id: row.id, name: row.name, createdAt: row.createdAt, updatedAt: row.updatedAt })
@@ -136,7 +136,7 @@ export async function tagsForTodos(ids: string[]): Promise<Map<string, Tag[]>> {
 
 async function requireTodo(todoId: string) {
   const db = await getDatabase()
-  const todo = await db.selectFrom('todos').select('id').where('id', '=', todoId).executeTakeFirst()
+  const [todo] = await db.select({ id: todos.id }).from(todos).where(eq(todos.id, todoId)).limit(1)
   if (!todo) throw new Error(`Todo not found: ${todoId}`)
 }
 
@@ -145,14 +145,14 @@ export async function setTodoTags(todoId: string, tagIds: string[]): Promise<voi
   const unique = [...new Set(tagIds.filter((id) => id.trim()))]
   const db = await getDatabase()
   if (unique.length > 0) {
-    const tags = await db.selectFrom('tags').select('id').where('id', 'in', unique).execute()
-    if (tags.length !== unique.length) throw new Error('标签不存在')
+    const found = await db.select({ id: tags.id }).from(tags).where(inArray(tags.id, unique))
+    if (found.length !== unique.length) throw new Error('标签不存在')
   }
   const now = new Date().toISOString()
-  await db.transaction().execute(async (trx) => {
-    await trx.deleteFrom('todo_tags').where('todoId', '=', todoId).execute()
+  db.transaction((trx) => {
+    trx.delete(todoTags).where(eq(todoTags.todoId, todoId)).run()
     for (const tagId of unique) {
-      await trx.insertInto('todo_tags').values({ todoId, tagId, createdAt: now }).execute()
+      trx.insert(todoTags).values({ todoId, tagId, createdAt: now }).run()
     }
   })
 }

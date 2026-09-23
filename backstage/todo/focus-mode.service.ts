@@ -1,6 +1,8 @@
 import 'server-only'
 import { nanoid } from 'nanoid'
+import { asc, eq, inArray } from 'drizzle-orm'
 import { getDatabase } from '@/backstage/db/database'
+import { focusModes, tags } from '@/backstage/db/schema'
 import {
   INCLUDE_ALL,
   type CreateFocusModeInput,
@@ -45,7 +47,7 @@ async function assertTagIds(ids: string[]): Promise<void> {
   const tagIds = ids.filter((id) => id !== INCLUDE_ALL)
   if (tagIds.length === 0) return
   const db = await getDatabase()
-  const rows = await db.selectFrom('tags').select('id').where('id', 'in', tagIds).execute()
+  const rows = await db.select({ id: tags.id }).from(tags).where(inArray(tags.id, tagIds))
   if (rows.length !== tagIds.length) throw new Error('标签不存在')
 }
 
@@ -76,13 +78,13 @@ function normalizeName(name: string): string {
 
 export async function listFocusModes(): Promise<FocusMode[]> {
   const db = await getDatabase()
-  const rows = await db.selectFrom('focus_modes').selectAll().orderBy('createdAt').execute()
+  const rows = await db.select().from(focusModes).orderBy(asc(focusModes.createdAt))
   return rows.map(mapFocusMode)
 }
 
 export async function getFocusMode(id: string): Promise<FocusMode> {
   const db = await getDatabase()
-  const row = await db.selectFrom('focus_modes').selectAll().where('id', '=', id).executeTakeFirst()
+  const [row] = await db.select().from(focusModes).where(eq(focusModes.id, id)).limit(1)
   if (!row) throw new Error('情景模式不存在')
   return mapFocusMode(row)
 }
@@ -102,7 +104,7 @@ export async function createFocusMode(input: CreateFocusModeInput): Promise<Focu
     createdAt: now,
     updatedAt: now,
   }
-  await db.insertInto('focus_modes').values(row).execute()
+  await db.insert(focusModes).values(row)
   return mapFocusMode(row)
 }
 
@@ -114,17 +116,17 @@ export async function updateFocusMode(id: string, input: UpdateFocusModeInput): 
   await assertTagIds([...includeTags, ...excludeTags])
   const db = await getDatabase()
   const now = new Date().toISOString()
-  await db.updateTable('focus_modes').set({
+  await db.update(focusModes).set({
     name,
     includeTags: JSON.stringify(includeTags),
     excludeTags: JSON.stringify(excludeTags),
     updatedAt: now,
-  }).where('id', '=', id).execute()
+  }).where(eq(focusModes.id, id))
   return getFocusMode(id)
 }
 
 export async function deleteFocusMode(id: string): Promise<void> {
   await getFocusMode(id)
   const db = await getDatabase()
-  await db.deleteFrom('focus_modes').where('id', '=', id).execute()
+  await db.delete(focusModes).where(eq(focusModes.id, id))
 }

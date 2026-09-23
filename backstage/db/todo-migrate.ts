@@ -1,22 +1,22 @@
-import type Database from 'better-sqlite3'
+import type { DatabaseSync } from 'node:sqlite'
 
 type ColumnRow = { name: string }
 
-function columnNames(sqlite: Database.Database, table: string): Set<string> {
+function columnNames(sqlite: DatabaseSync, table: string): Set<string> {
   return new Set(
     (sqlite.prepare(`PRAGMA table_info(${table})`).all() as ColumnRow[])
       .map((column) => column.name)
   )
 }
 
-function dropColumnIfExists(sqlite: Database.Database, table: string, column: string): void {
+function dropColumnIfExists(sqlite: DatabaseSync, table: string, column: string): void {
   if (columnNames(sqlite, table).has(column)) {
     sqlite.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`)
   }
 }
 
-export function migrateTodoDomain(sqlite: Database.Database): void {
-  sqlite.pragma('foreign_keys = ON')
+export function migrateTodoDomain(sqlite: DatabaseSync): void {
+  sqlite.exec('PRAGMA foreign_keys = ON')
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS todos (
       id TEXT PRIMARY KEY,

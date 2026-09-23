@@ -1,6 +1,8 @@
 import 'server-only'
 import { nanoid } from 'nanoid'
+import { and, asc, desc, eq, inArray, isNull, like, or, type SQL } from 'drizzle-orm'
 import { getDatabase } from '@/backstage/db/database'
+import { todoTimeLinks, todos } from '@/backstage/db/schema'
 import { parseOutline, type OutlineDraft } from '@/lib/todo-outline'
 import { startTodoTimeSpan, stopTodoTimeSpan } from '@/backstage/todo/todo-time-span.service'
 import { setTodoTags, tagsForTodos } from '@/backstage/todo/tag.service'
@@ -39,7 +41,7 @@ async function loadTimeLinks(ids: string[]): Promise<Map<string, TodoTimeLink[]>
   const grouped = new Map<string, TodoTimeLink[]>()
   if (ids.length === 0) return grouped
   const db = await getDatabase()
-  const rows = await db.selectFrom('todo_time_links').selectAll().where('todoId', 'in', ids).execute()
+  const rows = await db.select().from(todoTimeLinks).where(inArray(todoTimeLinks.todoId, ids))
   for (const row of rows) {
     if (!isTimeGrain(row.grain)) continue
     const links = grouped.get(row.todoId) ?? []
@@ -63,7 +65,7 @@ async function withTodoRelations(rows: TodoRow[]): Promise<Todo[]> {
 
 async function requireParent(parentId: string) {
   const db = await getDatabase()
-  const parent = await db.selectFrom('todos').select(['id', 'depth']).where('id', '=', parentId).executeTakeFirst()
+  const [parent] = await db.select({ id: todos.id, depth: todos.depth }).from(todos).where(eq(todos.id, parentId)).limit(1)
   if (!parent) throw new Error(`Todo parent not found: ${parentId}`)
   if (parent.depth >= MAX_DEPTH) throw new Error('Todo maximum depth exceeded')
   return parent
@@ -89,13 +91,13 @@ export async function linkTodoTime(todoId: string, grain: TimeGrain, date: strin
   await getTodo(todoId)
   const db = await getDatabase()
   const now = new Date().toISOString()
-  await db.insertInto('todo_time_links').values({
+  await db.insert(todoTimeLinks).values({
     id: `time-${grain}-${Date.now()}-${nanoid(6)}`,
     todoId,
     grain,
     date: trimmed,
     createdAt: now,
-  }).onConflict((conflict) => conflict.columns(['todoId', 'grain', 'date']).doNothing()).execute()
+  }).onConflictDoNothing({ target: [todoTimeLinks.todoId, todoTimeLinks.grain, todoTimeLinks.date] })
   return getTodo(todoId)
 }
 
@@ -103,9 +105,9 @@ export async function unlinkTodoTime(todoId: string, grain: TimeGrain, date?: st
   if (!isTimeGrain(grain)) throw new Error(`Invalid time grain: ${grain}`)
   await getTodo(todoId)
   const db = await getDatabase()
-  let query = db.deleteFrom('todo_time_links').where('todoId', '=', todoId).where('grain', '=', grain)
-  if (date) query = query.where('date', '=', date)
-  await query.execute()
+  const filters = [eq(todoTimeLinks.todoId, todoId), eq(todoTimeLinks.grain, grain)]
+  if (date) filters.push(eq(todoTimeLinks.date, date))
+  await db.delete(todoTimeLinks).where(and(...filters))
   return getTodo(todoId)
 }
 
@@ -130,7 +132,7 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
       }
     }
   }
-  await db.insertInto('todos').values({
+  await db.insert(todos).values({
     id,
     parentId: input.parentId ?? null,
     sortOrder: input.sortOrder ?? 0,
@@ -147,15 +149,15 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
     completedAt: status === 'done' ? now : null,
     createdAt: now,
     updatedAt: now,
-  }).execute()
+  })
   for (const link of time) {
-    await db.insertInto('todo_time_links').values({
+    await db.insert(todoTimeLinks).values({
       id: `time-${link.grain}-${Date.now()}-${nanoid(6)}`,
       todoId: id,
       grain: link.grain,
       date: link.date,
       createdAt: now,
-    }).onConflict((conflict) => conflict.columns(['todoId', 'grain', 'date']).doNothing()).execute()
+    }).onConflictDoNothing({ target: [todoTimeLinks.todoId, todoTimeLinks.grain, todoTimeLinks.date] })
   }
   const copyParentTags = Boolean(parentTodo) && kind !== 'note' && kind !== 'rest' && input.tagIds == null
   const tagIds = input.tagIds ?? (copyParentTags ? tagIdsOf(parentTodo) : [])
@@ -166,7 +168,7 @@ export async function createTodo(input: CreateTodoInput): Promise<Todo> {
 
 export async function findRestTodo(): Promise<Todo | null> {
   const db = await getDatabase()
-  const row = await db.selectFrom('todos').selectAll().where('kind', '=', 'rest').orderBy('createdAt').executeTakeFirst()
+  const [row] = await db.select().from(todos).where(eq(todos.kind, 'rest')).orderBy(asc(todos.createdAt)).limit(1)
   if (!row) return null
   const [todo] = await withTodoRelations([row])
   return todo
@@ -180,7 +182,7 @@ export async function ensureRestTodo(): Promise<Todo> {
 
 export async function getTodo(id: string): Promise<Todo> {
   const db = await getDatabase()
-  const row = await db.selectFrom('todos').selectAll().where('id', '=', id).executeTakeFirst()
+  const [row] = await db.select().from(todos).where(eq(todos.id, id)).limit(1)
   if (!row) throw new Error(`Todo not found: ${id}`)
   const [todo] = await withTodoRelations([row])
   return todo
@@ -192,23 +194,30 @@ export async function listTodos(input: {
   grain?: TimeGrain; date?: string
 } = {}): Promise<Todo[]> {
   const db = await getDatabase()
-  let query = db.selectFrom('todos').selectAll()
-  if (input.parentId !== undefined) query = input.parentId === null
-    ? query.where('parentId', 'is', null) : query.where('parentId', '=', input.parentId)
-  if (input.status) query = query.where('status', '=', input.status)
-  if (input.kind) query = query.where('kind', '=', input.kind)
-  if (input.query) query = query.where((eb) => eb.or([
-    eb('title', 'like', `%${input.query}%`),
-    eb('description', 'like', `%${input.query}%`),
-    eb('content', 'like', `%${input.query}%`),
-  ]))
-  const rows = await query.orderBy('sortOrder').orderBy('createdAt', 'desc').execute()
-  const todos = await withTodoRelations(rows)
-  if (!input.grain) return todos
-  if (input.grain === 'day' && input.date) {
-    return todos.filter((todo) => isTodayScheduled(todo, input.date))
+  const filters: SQL[] = []
+  if (input.parentId !== undefined) {
+    filters.push(input.parentId === null ? isNull(todos.parentId) : eq(todos.parentId, input.parentId))
   }
-  return todos.filter((todo) => (todo.timeLinks ?? []).some((link) => (
+  if (input.status) filters.push(eq(todos.status, input.status))
+  if (input.kind) filters.push(eq(todos.kind, input.kind))
+  if (input.query) {
+    const pattern = `%${input.query}%`
+    const search = or(
+      like(todos.title, pattern),
+      like(todos.description, pattern),
+      like(todos.content, pattern),
+    )
+    if (search) filters.push(search)
+  }
+  const rows = await db.select().from(todos)
+    .where(filters.length > 0 ? and(...filters) : undefined)
+    .orderBy(asc(todos.sortOrder), desc(todos.createdAt))
+  const matched = await withTodoRelations(rows)
+  if (!input.grain) return matched
+  if (input.grain === 'day' && input.date) {
+    return matched.filter((todo) => isTodayScheduled(todo, input.date))
+  }
+  return matched.filter((todo) => (todo.timeLinks ?? []).some((link) => (
     link.grain === input.grain && (input.date == null || link.date === input.date)
   )))
 }
@@ -251,7 +260,7 @@ export async function updateTodo(id: string, input: UpdateTodoInput): Promise<To
     else if (current.status === 'done') updates.completedAt = null
   }
   const db = await getDatabase()
-  await db.updateTable('todos').set(updates).where('id', '=', id).where('version', '=', current.version).execute()
+  await db.update(todos).set(updates).where(and(eq(todos.id, id), eq(todos.version, current.version)))
   if (statusChanged && current.kind !== 'note') {
     if (nextStatus === 'active') await startTodoTimeSpan(id)
     else await stopTodoTimeSpan(id)
@@ -313,7 +322,7 @@ export async function moveTodo(id: string, input: {
   const db = await getDatabase()
   const descendants: Array<{ id: string; depth: number }> = []
   const collectDescendants = async (parentId: string, parentDepth: number) => {
-    const children = await db.selectFrom('todos').select('id').where('parentId', '=', parentId).execute()
+    const children = await db.select({ id: todos.id }).from(todos).where(eq(todos.parentId, parentId))
     for (const child of children) {
       const childDepth = parentDepth + 1
       if (childDepth > MAX_DEPTH) throw new Error('Todo maximum depth exceeded')
@@ -323,14 +332,14 @@ export async function moveTodo(id: string, input: {
   }
   await collectDescendants(id, depth)
   const now = new Date().toISOString()
-  await db.transaction().execute(async (trx) => {
-    await trx.updateTable('todos').set({
+  db.transaction((trx) => {
+    trx.update(todos).set({
       parentId: input.parentId, depth, sortOrder: input.sortOrder ?? 0,
       version: current.version + 1, updatedAt: now,
-    }).where('id', '=', id).execute()
+    }).where(eq(todos.id, id)).run()
     for (const descendant of descendants) {
-      await trx.updateTable('todos').set({ depth: descendant.depth, updatedAt: now })
-        .where('id', '=', descendant.id).execute()
+      trx.update(todos).set({ depth: descendant.depth, updatedAt: now })
+        .where(eq(todos.id, descendant.id)).run()
     }
   })
   return getTodo(id)
@@ -342,11 +351,11 @@ export async function deleteTodo(id: string, cascade = false): Promise<void> {
     throw new Error('Status change notes cannot be deleted')
   }
   const db = await getDatabase()
-  const child = await db.selectFrom('todos').select('id').where('parentId', '=', id).executeTakeFirst()
+  const [child] = await db.select({ id: todos.id }).from(todos).where(eq(todos.parentId, id)).limit(1)
   if (child && !cascade) throw new Error('Todo has children; cascade is required')
-  await db.transaction().execute(async (trx) => {
-    if (cascade) await trx.deleteFrom('todos').where('parentId', '=', id).execute()
-    await trx.deleteFrom('todos').where('id', '=', id).execute()
+  db.transaction((trx) => {
+    if (cascade) trx.delete(todos).where(eq(todos.parentId, id)).run()
+    trx.delete(todos).where(eq(todos.id, id)).run()
   })
 }
 

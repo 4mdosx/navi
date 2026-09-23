@@ -8,7 +8,7 @@
 
 - **前端**：Next.js 16 + React 19 + TypeScript
 - **UI**：Radix UI + Tailwind CSS
-- **数据库**：SQLite（Kysely + better-sqlite3）
+- **数据库**：SQLite（Drizzle + Node `node:sqlite`）
 - **认证**：PIN
 - **Agent**：Navi Todo MCP
 
