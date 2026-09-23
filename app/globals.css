@@ -142,9 +142,15 @@ body {
   box-sizing: border-box;
   border-radius: 999px;
   background: rgb(0 0 0 / 32%);
-  pointer-events: auto;
+  opacity: 0;
+  pointer-events: none;
   touch-action: none;
   cursor: grab;
+}
+
+[data-overlay-thumb][data-active] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 [data-overlay-thumb]:active {

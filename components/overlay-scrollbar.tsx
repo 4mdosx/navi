@@ -5,6 +5,8 @@ import { useEffect } from 'react'
 const THUMB = 6
 const MIN_THUMB = 28
 const INSET = 2
+const FADE_AFTER = 1000
+const FADE_MS = 700
 
 type Axis = 'x' | 'y'
 
@@ -81,6 +83,8 @@ export default function OverlayScrollbars() {
     const thumbs = new Map<HTMLElement, Record<Axis, HTMLDivElement>>()
     const watched = new Set<HTMLElement>()
     const observed = new Set<HTMLElement>()
+    const lastScroll = new Map<HTMLElement, { top: number, left: number }>()
+    let lastMutationAt = 0
     let dragging: HTMLElement | null = null
     let frame = 0
     let scanTimer = 0
@@ -92,8 +96,93 @@ export default function OverlayScrollbars() {
       }
     })
 
+    const revealed = new Set<HTMLElement>()
+    const fadeTimers = new Map<HTMLElement, number>()
+    let fadeToken = 0
+
+    const fadeTarget = new WeakMap<HTMLDivElement, number>()
+
+    const fade = (node: HTMLDivElement, to: number, onDone?: () => void) => {
+      const running = node.getAnimations().some(animation => animation.id === 'overlay-fade')
+      if (running && fadeTarget.get(node) === to) return
+      const current = Number.parseFloat(getComputedStyle(node).opacity)
+      const start = Number.isFinite(current) ? current : to
+      for (const animation of node.getAnimations()) {
+        if (animation.id === 'overlay-fade') animation.cancel()
+      }
+      node.style.opacity = String(start)
+      fadeTarget.set(node, to)
+      if (Math.abs(start - to) < 0.02) {
+        node.style.opacity = String(to)
+        onDone?.()
+        return
+      }
+      const animation = node.animate([{ opacity: start }, { opacity: to }], {
+        duration: FADE_MS,
+        easing: 'ease-out',
+        fill: 'forwards',
+        id: 'overlay-fade',
+      })
+      animation.addEventListener('finish', () => {
+        node.style.opacity = String(to)
+        animation.cancel()
+        onDone?.()
+      })
+    }
+
+    const conceal = (node: HTMLDivElement) => {
+      node.style.pointerEvents = 'none'
+      node.removeAttribute('data-active')
+      if (node.style.display === 'none') return
+      if (fadeTarget.get(node) === 0 && node.getAnimations().some(animation => animation.id === 'overlay-fade')) return
+      const token = String(++fadeToken)
+      node.dataset.fade = token
+      fade(node, 0, () => {
+        if (node.dataset.fade !== token) return
+        node.style.display = 'none'
+      })
+    }
+
     const hide = (node: HTMLDivElement) => {
-      node.style.display = 'none'
+      conceal(node)
+    }
+
+    const syncActive = (el: HTMLElement, node: HTMLDivElement) => {
+      const visible = revealed.has(el) || dragging === el
+      if (!visible) {
+        conceal(node)
+        return
+      }
+      const wasHidden = node.style.display === 'none'
+      node.dataset.fade = String(++fadeToken)
+      node.style.display = 'block'
+      node.style.pointerEvents = 'auto'
+      node.dataset.active = ''
+      if (wasHidden) node.style.opacity = '1'
+      else fade(node, 1)
+    }
+
+    const scheduleFade = (el: HTMLElement) => {
+      const existing = fadeTimers.get(el)
+      if (existing) window.clearTimeout(existing)
+      fadeTimers.set(el, window.setTimeout(() => {
+        fadeTimers.delete(el)
+        if (dragging === el) return
+        revealed.delete(el)
+        const pair = thumbs.get(el)
+        if (!pair) return
+        syncActive(el, pair.y)
+        syncActive(el, pair.x)
+      }, FADE_AFTER))
+    }
+
+    const reveal = (el: HTMLElement) => {
+      revealed.add(el)
+      if (dragging !== el) scheduleFade(el)
+      const pair = thumbs.get(el)
+      if (!pair) return
+      syncActive(el, pair.y)
+      syncActive(el, pair.x)
     }
 
     const createThumb = (axis: Axis) => {
@@ -163,7 +252,7 @@ export default function OverlayScrollbars() {
         return
       }
 
-      node.style.display = 'block'
+      syncActive(el, node)
       if (horizontal) {
         node.style.top = `${cross}px`
         node.style.left = `${viewStart + offset}px`
@@ -184,6 +273,11 @@ export default function OverlayScrollbars() {
         pair?.x.remove()
         thumbs.delete(el)
         watched.delete(el)
+        revealed.delete(el)
+        lastScroll.delete(el)
+        const timer = fadeTimers.get(el)
+        if (timer) window.clearTimeout(timer)
+        fadeTimers.delete(el)
         return
       }
       if (el.closest('.scrollbar-hide')) {
@@ -218,6 +312,11 @@ export default function OverlayScrollbars() {
         event.preventDefault()
         event.stopPropagation()
         dragging = el
+        revealed.add(el)
+        const pendingFade = fadeTimers.get(el)
+        if (pendingFade) window.clearTimeout(pendingFade)
+        fadeTimers.delete(el)
+        syncActive(el, node)
         node.setPointerCapture(event.pointerId)
 
         const horizontal = axis === 'x'
@@ -245,6 +344,7 @@ export default function OverlayScrollbars() {
           node.removeEventListener('pointermove', move)
           node.removeEventListener('pointerup', end)
           node.removeEventListener('pointercancel', end)
+          scheduleFade(el)
           update(el)
         }
         node.addEventListener('pointermove', move)
@@ -272,24 +372,67 @@ export default function OverlayScrollbars() {
       for (const el of watched) enqueue(el)
     }
 
+    const scrollTarget = (event: Event) => {
+      if (event.target === document) {
+        return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null
+      }
+      return event.target instanceof HTMLElement && !layer.contains(event.target) ? event.target : null
+    }
+
     const onScroll = (event: Event) => {
-      const target = event.target
-      if (target === document) {
-        const scroller = document.scrollingElement
-        if (scroller instanceof HTMLElement) enqueue(scroller)
-        return
+      const el = scrollTarget(event)
+      if (!el) return
+      const next = { top: el.scrollTop, left: el.scrollLeft }
+      const prev = lastScroll.get(el)
+      lastScroll.set(el, next)
+      const moved = Boolean(prev && (prev.top !== next.top || prev.left !== next.left))
+      const fromLayout = Date.now() - lastMutationAt < 250
+      watched.add(el)
+      if (moved && !fromLayout) reveal(el)
+      enqueue(el)
+    }
+
+    const findScroller = (target: EventTarget | null) => {
+      let node = target instanceof Element ? target : null
+      while (node) {
+        if (node instanceof HTMLElement && node !== layer && !layer.contains(node)) {
+          const style = getComputedStyle(node)
+          const y = style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflowY === 'overlay'
+          const x = style.overflowX === 'auto' || style.overflowX === 'scroll' || style.overflowX === 'overlay'
+          if ((y && node.scrollHeight > node.clientHeight + 1) || (x && node.scrollWidth > node.clientWidth + 1)) return node
+        }
+        node = node.parentElement
       }
-      if (target instanceof HTMLElement && !layer.contains(target)) {
-        watched.add(target)
-        enqueue(target)
-      }
+      const scroller = document.scrollingElement
+      if (scroller instanceof HTMLElement && scroller.scrollHeight > window.innerHeight + 1) return scroller
+      return null
+    }
+
+    const onIntent = (event: Event) => {
+      if (event.type === 'keydown' && event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
+      const el = findScroller(event.target)
+      if (!el) return
+      watched.add(el)
+      reveal(el)
+      enqueue(el)
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return
+      onIntent(event)
     }
 
     const onResize = () => scan()
 
     document.addEventListener('scroll', onScroll, true)
+    document.addEventListener('wheel', onIntent, { capture: true, passive: true })
+    document.addEventListener('touchmove', onIntent, { capture: true, passive: true })
+    document.addEventListener('keydown', onKeyDown, true)
     window.addEventListener('resize', onResize)
-    const mutationObserver = new MutationObserver(() => {
+    const mutationObserver = new MutationObserver(records => {
+      const relevant = records.some(record => record.target instanceof Node && !layer.contains(record.target))
+      if (!relevant) return
+      lastMutationAt = Date.now()
       window.clearTimeout(scanTimer)
       scanTimer = window.setTimeout(scan, 80)
     })
@@ -305,12 +448,16 @@ export default function OverlayScrollbars() {
 
     return () => {
       document.removeEventListener('scroll', onScroll, true)
+      document.removeEventListener('wheel', onIntent, true)
+      document.removeEventListener('touchmove', onIntent, true)
+      document.removeEventListener('keydown', onKeyDown, true)
       document.removeEventListener('load', scan, true)
       window.removeEventListener('resize', onResize)
       mutationObserver.disconnect()
       resizeObserver.disconnect()
       window.clearTimeout(scanTimer)
       if (frame) window.cancelAnimationFrame(frame)
+      for (const timer of fadeTimers.values()) window.clearTimeout(timer)
       layer.remove()
     }
   }, [])
