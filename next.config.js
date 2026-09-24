@@ -1,8 +1,13 @@
+const allowedOrigins = (process.env.SERVER_ACTION_ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
     serverActions: {
-      allowedOrigins: ['4moredos.org', '4moredos.org'],
+      allowedOrigins,
     },
   },
 }
