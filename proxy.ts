@@ -11,7 +11,7 @@ function isPublicPath(pathname: string): boolean {
   )
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   if (isPublicPath(request.nextUrl.pathname)) {
     return NextResponse.next()
   }
