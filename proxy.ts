@@ -11,28 +11,15 @@ function isPublicPath(pathname: string): boolean {
   )
 }
 
-function sessionSecret(): string | undefined {
-  const name = ['SESSION', 'SECRET'].join('_')
-  return process.env[name]
-}
-
 export async function proxy(request: NextRequest) {
   if (isPublicPath(request.nextUrl.pathname)) {
     return NextResponse.next()
   }
 
+  const secret = process.env['SESSION_SECRET']
   const session = request.cookies.get('session')?.value
-  if (!session) {
+  if (!secret || !session) {
     return deny(request)
-  }
-
-  const secret = sessionSecret()
-  const isApi = request.nextUrl.pathname.startsWith('/api/')
-  if (!isApi) {
-    return NextResponse.next()
-  }
-  if (!secret) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
@@ -41,7 +28,7 @@ export async function proxy(request: NextRequest) {
     })
     return NextResponse.next()
   } catch {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    return deny(request)
   }
 }
 
@@ -50,9 +37,10 @@ function deny(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 
-  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host')
-  const proto = (request.headers.get('x-forwarded-proto') ?? 'https').split(',')[0].trim()
-  return NextResponse.redirect(new URL('/login', `${proto}://${host}`))
+  const url = request.nextUrl.clone()
+  url.pathname = '/login'
+  url.search = ''
+  return NextResponse.redirect(url)
 }
 
 export const config = {
