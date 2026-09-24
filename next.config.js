@@ -6,6 +6,7 @@ const allowedOrigins = (process.env.SERVER_ACTION_ALLOWED_ORIGINS ?? '')
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
+    trustHostHeader: true, 
     serverActions: {
       allowedOrigins,
     },
