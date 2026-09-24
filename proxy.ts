@@ -11,12 +11,17 @@ function isPublicPath(pathname: string): boolean {
   )
 }
 
+function sessionSecret(): string | undefined {
+  const name = ['SESSION', 'SECRET'].join('_')
+  return process.env[name]
+}
+
 export async function proxy(request: NextRequest) {
   if (isPublicPath(request.nextUrl.pathname)) {
     return NextResponse.next()
   }
 
-  const secret = process.env['SESSION_SECRET']
+  const secret = sessionSecret()
   const session = request.cookies.get('session')?.value
   if (!secret || !session) {
     return deny(request)
