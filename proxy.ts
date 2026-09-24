@@ -50,10 +50,9 @@ function deny(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 
-  const url = request.nextUrl.clone()
-  url.pathname = '/login'
-  url.search = ''
-  return NextResponse.redirect(url)
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host')
+  const proto = (request.headers.get('x-forwarded-proto') ?? 'https').split(',')[0].trim()
+  return NextResponse.redirect(new URL('/login', `${proto}://${host}`))
 }
 
 export const config = {
