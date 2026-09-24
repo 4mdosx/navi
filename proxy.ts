@@ -21,10 +21,18 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
-  const secret = sessionSecret()
   const session = request.cookies.get('session')?.value
-  if (!secret || !session) {
+  if (!session) {
     return deny(request)
+  }
+
+  const secret = sessionSecret()
+  const isApi = request.nextUrl.pathname.startsWith('/api/')
+  if (!isApi) {
+    return NextResponse.next()
+  }
+  if (!secret) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
@@ -33,7 +41,7 @@ export async function proxy(request: NextRequest) {
     })
     return NextResponse.next()
   } catch {
-    return deny(request)
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 }
 
