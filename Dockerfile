@@ -1,4 +1,6 @@
-FROM node:24-bookworm-slim AS build
+# node:24-bookworm-slim as of 2026-09-24. Manifest list digest; amd64 image is
+# sha256:5cbc7caba8c2c0f0bca675d1b61b9f2857e1cf1853c6164ee9dd409501a936e7
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
 
 WORKDIR /app
 
@@ -9,18 +11,22 @@ COPY . .
 RUN npm run build \
   && npm prune --omit=dev
 
-FROM node:24-bookworm-slim AS runner
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runner
 
 WORKDIR /app
 
+ARG NAVI_VERSION=dev
 ENV NODE_ENV=production
 ENV PORT=5500
+ENV NAVI_VERSION=$NAVI_VERSION
 
-COPY --from=build /app/package.json ./
-COPY --from=build /app/next.config.js ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
+COPY --from=build --chown=node:node /app/package.json ./
+COPY --from=build --chown=node:node /app/next.config.js ./
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/.next ./.next
+COPY --from=build --chown=node:node /app/public ./public
+
+USER node
 
 EXPOSE 5500
 

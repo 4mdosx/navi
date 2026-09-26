@@ -44,6 +44,11 @@ const globalForDb = globalThis as unknown as {
   db: AppDatabase | undefined
 }
 
+export function pingDatabase(): void {
+  ensureSchema()
+  sqlite.prepare('SELECT 1').get()
+}
+
 export async function getDatabase(): Promise<AppDatabase> {
   ensureSchema()
   if (!globalForDb.db) {

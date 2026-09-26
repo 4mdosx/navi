@@ -1,7 +1,7 @@
 import { jwtVerify } from 'jose'
 import { NextRequest, NextResponse } from 'next/server'
 
-const PUBLIC_PATHS = new Set(['/login'])
+const PUBLIC_PATHS = new Set(['/login', '/healthz'])
 const PUBLIC_API_PREFIXES = ['/api/todos/gateway']
 
 function isPublicPath(pathname: string): boolean {
